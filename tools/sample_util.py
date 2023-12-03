@@ -70,7 +70,7 @@ def to2d(cord, rgb, calib):
 
 
 class SampleDatabase:
-    def __init__(self, database_path):
+    def __init__(self, database_path, idx_list=None):
         self.database_path = pathlib.Path(database_path)
         assert self.database_path.exists()
         self.image_path = self.database_path / "image"
@@ -78,6 +78,8 @@ class SampleDatabase:
         # self.mask_path = self.database_path / "mask"
         with open(self.database_path / "kitti_car_database.pkl", "rb") as f:
             database = pickle.load(f)
+        if idx_list is not None:
+            [database.pop(key) for key in list(database.keys()) if key.split("_")[0] not in idx_list]
         self.database = list(database.values())
 
         self.sample_group = {
@@ -89,9 +91,7 @@ class SampleDatabase:
         }
 
     @staticmethod
-    def get_ry_(xyz, xyz_, ry, calib, calib_):
-        uv, _ = calib.rect_to_img(xyz.reshape(1, -1))
-        alpha = calib.ry2alpha(ry, uv[:, 0])
+    def get_ry_(alpha, xyz_, calib_):
         uv_, _ = calib_.rect_to_img(xyz_.reshape(1, -1))
         ry_ = calib_.alpha2ry(alpha, uv_[:, 0])
         return ry_
@@ -103,7 +103,7 @@ class SampleDatabase:
         y /= b
         return y
 
-    def sample_with_fixed_number(self, calib_):
+    def sample_with_fixed_number(self, calib_, plane_):
         database, sample_group = self.database, self.sample_group
         sample_num, pointer, indices = int(sample_group['sample_num']), sample_group['pointer'], sample_group['indices']
         low_x, high_x = sample_group["x_range"]
@@ -115,23 +115,33 @@ class SampleDatabase:
         samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
 
         # 获取原始 bbox3d
-        xyz = np.array([s['label'].pos for s in samples])
-        ry = np.array([[s['label'].ry] for s in samples])
+        # xyz = np.array([s['label'].pos for s in samples])
+        alpha = np.array([[s['label'].alpha] for s in samples])
         lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
-        calib = [s['calib'] for s in samples]
-        plane = [s['plane'] for s in samples]
+        # calib = [s['calib'] for s in samples]
+        # plane = [s['plane'] for s in samples]
 
         # 采样 bbox3d
         x_ = np.random.uniform(low=low_x, high=high_x, size=(sample_num, 1))
         z_ = np.random.uniform(low=low_z, high=high_z, size=(sample_num, 1))
-        y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane[i]) for i in range(sample_num)])
+        y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_) for i in range(sample_num)])
         xyz_ = np.concatenate([x_, y_, z_], axis=1)
-        ry_ = np.array([self.get_ry_(xyz[i], xyz_[i], ry[i], calib[i], calib_) for i in range(sample_num)])
+        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(sample_num)])
         bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
 
         pointer += sample_num
         sample_group['pointer'] = pointer
         sample_group['indices'] = indices
+        return samples, bbox3d_
+
+    def sample_with_fixed_idx(self, xyz_, calib_, index):
+        n = xyz_.shape[0]
+        samples = [self.database[index] for i in range(n)]
+        alpha = np.array([[s['label'].alpha] for s in samples])
+        lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
+
+        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(n)])
+        bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
         return samples, bbox3d_
 
     @staticmethod
@@ -165,8 +175,8 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib):
-        samples, bbox3d = self.sample_with_fixed_number(calib)
+    def get_samples(self, ground, non_ground, calib_, plane_):
+        samples, bbox3d = self.sample_with_fixed_number(calib_, plane_)
 
         # 放置于地面，第一次筛除
         bbox3d_, flag1 = self.sample_put_on_plane(bbox3d, ground)
@@ -174,7 +184,7 @@ class SampleDatabase:
             return []
 
         # api 要求 bbox3d 为 lidar 坐标系
-        bbox3d_in_lidar = rect2lidar(bbox3d_[flag1], calib)
+        bbox3d_in_lidar = rect2lidar(bbox3d_[flag1], calib_)
 
         # 判断样本间是否有重叠，第二次筛除
         iou = boxes_bev_iou_cpu(bbox3d_in_lidar, bbox3d_in_lidar)
@@ -184,20 +194,21 @@ class SampleDatabase:
             return []
 
         # 判断样本是否与障碍物重叠，第三次筛除
-        points_in_lidar = calib.rect_to_lidar(non_ground)
+        points_in_lidar = calib_.rect_to_lidar(non_ground)
         flag3 = ~ check_points_in_boxes3d(points_in_lidar, bbox3d_in_lidar[flag2])
         if flag3.sum() == 0:
             return []
 
         # 合并筛除结果
         valid = np.arange(bbox3d.shape[0])[flag1][flag2][flag3]
-        res = [Sample(samples[i], bbox3d_[i], calib, self) for i in valid]
+        res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
         return res
 
     @staticmethod
     def add_samples_to_scene(samples, image, depth):
         image_, depth_ = image.copy(), depth.copy()
         flag = np.zeros(len(samples), dtype=bool)
+        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)
         for i, sample in enumerate(samples):
             image_, depth_, flag[i] = sample.cover(image_, depth_)
 
@@ -348,6 +359,7 @@ if __name__ == '__main__':
         calib_ = dataset.get_calib(idx)
         image, depth = dataset.get_image_with_depth(idx, use_penet=True)
         ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
-        samples = database.get_samples(ground, non_ground, calib_)
+        plane_ = dataset.get_plane(idx)
+        samples = database.get_samples(ground, non_ground, calib_, plane_)
         image_, depth_, flag = database.add_samples_to_scene(samples, image, depth)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)

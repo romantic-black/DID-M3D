@@ -5,8 +5,8 @@ dataset:
   dense_depth_dir: '/mnt/e/DataSet/kitti/training/dense_depth'
   eval_cls: ['Car']
 #  eval_cls: ['Car','Pedestrian','Cyclist']
-  batch_size: 2
-  num_workers: 4
+  batch_size: 8
+  num_workers: 16
   class_merging: False
   use_dontcare: False
   use_3d_center: True
@@ -41,6 +41,7 @@ trainer:
   disp_frequency: 200 # display interval (in batch)
   log_dir: 'kitti_models/logs/DID-M3D'
   out_dir: 'kitti_models/output/DID-M3D'
+  # resume_model: 'kitti_models/output/DID-M3D/checkpoint_90.pth' # pre-trained model path
 
 tester:
   threshold: 0.2  # confidence filter
