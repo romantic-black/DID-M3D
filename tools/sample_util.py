@@ -83,7 +83,7 @@ class SampleDatabase:
         self.database = list(database.values())
 
         self.sample_group = {
-            "sample_num": 15,
+            "sample_num": 30,
             "pointer": len(database),
             "x_range": [[-15.], [15.]],
             "z_range": [[25.], [65.]],
@@ -113,7 +113,7 @@ class SampleDatabase:
             pointer = 0
 
         samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
-
+        sample_num = len(samples)
         # 获取原始 bbox3d
         # xyz = np.array([s['label'].pos for s in samples])
         alpha = np.array([[s['label'].alpha] for s in samples])
@@ -189,6 +189,8 @@ class SampleDatabase:
         # 判断样本间是否有重叠，第二次筛除
         iou = boxes_bev_iou_cpu(bbox3d_in_lidar, bbox3d_in_lidar)
         iou[range(bbox3d_in_lidar.shape[0]), range(bbox3d_in_lidar.shape[0])] = 0
+        rows, cols = np.triu_indices(n=iou.shape[0], k=1)
+        iou[rows, cols] = 0
         flag2 = iou.max(axis=1) == 0
         if flag2.sum() == 0:
             return []
@@ -205,10 +207,10 @@ class SampleDatabase:
         return res
 
     @staticmethod
-    def add_samples_to_scene(samples, image, depth):
+    def add_samples_to_scene(samples, image, depth, max_num=10):
         image_, depth_ = image.copy(), depth.copy()
         flag = np.zeros(len(samples), dtype=bool)
-        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)
+        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)[:max_num]
         for i, sample in enumerate(samples):
             image_, depth_, flag[i] = sample.cover(image_, depth_)
 
@@ -347,19 +349,29 @@ class Sample:
 
 
 from pathlib import Path
-
+import time
 if __name__ == '__main__':
     test_dir = Path("/mnt/e/DataSet/kitti/kitti_inst_database/test")
     np.random.seed(0)
 
     database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_inst_database/")
     dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
-
-    for idx in range(200):
+    mean_samples = 0
+    n = 200
+    dt = 0
+    for idx in range(n):
         calib_ = dataset.get_calib(idx)
         image, depth = dataset.get_image_with_depth(idx, use_penet=True)
         ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
         plane_ = dataset.get_plane(idx)
+
+        time1 = time.time()
         samples = database.get_samples(ground, non_ground, calib_, plane_)
-        image_, depth_, flag = database.add_samples_to_scene(samples, image, depth)
+        image_, depth_, samples = database.add_samples_to_scene(samples, image, depth)
+        time2 = time.time()
+        mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
+        dt += time2 - time1
+
+    print("time: ", dt / n)
+    print(mean_samples / n)
