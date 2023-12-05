@@ -30,8 +30,11 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
             bbox = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
 
             depth = dets[i, j, -2]
-            score *= dets[i, j, -1]
-
+            # score *= dets[i, j, -1]
+            # score = dets[i, j, -1] if dets[i, j, -1] < score else score
+            # score = dets[i, j, -1]
+            # if score > 1.0:
+            #     score = 1.0
             # heading angle decoding
             alpha = get_heading_angle(dets[i, j, 6:30])
             ry = calibs[i].alpha2ry(alpha, x)
@@ -61,7 +64,7 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
 #     return im_color
 
 # two stage style
-def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
+def extract_dets_from_outputs(outputs, conf_mode='max', K=50):
     # get src outputs
     heatmap = outputs['heatmap']
     size_2d = outputs['size_2d']

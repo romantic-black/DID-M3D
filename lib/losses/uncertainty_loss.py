@@ -8,7 +8,12 @@ def laplacian_aleatoric_uncertainty_loss(input, target, log_variance, reduction=
         Geometry and Uncertainty in Deep Learning for Computer Vision, University of Cambridge
     '''
     assert reduction in ['mean', 'sum']
-    loss = 1.4142 * torch.exp(-0.5*log_variance) * torch.abs(input - target) + 0.5*log_variance
+
+    diff = torch.abs(input - target)
+    l2_loss = 0.5 * torch.pow(diff, 2)
+    l1_loss = diff - 0.5
+    loss = torch.where(diff <= 1., l2_loss, l1_loss)
+
     return loss.mean() if reduction == 'mean' else loss.sum()
 
 def gaussian_aleatoric_uncertainty_loss(input, target, log_variance, reduction='mean'):
