@@ -5,3 +5,4 @@ build/
 aug.egg-info/
 
 *.so
+config/

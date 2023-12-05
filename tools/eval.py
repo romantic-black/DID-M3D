@@ -527,16 +527,42 @@ def compute_statistics_jit(overlaps,
                            thresh=0,
                            compute_fp=False,
                            compute_aos=False):
+    """
+    逐帧计算tp, fp, fn, similarity, thresholds[:thresh_idx]等统计指标
+    根据compute_fp的状态不同，存在两种模式
+    Args:
+        overlaps:单帧点云的iou（N,M)
+        gt_datas:(N,5)--> (x1, y1, x2, y2, alpha)
+        dt_datas:(M,6)--> (x1, y1, x2, y2, alpha, score)
+        ignored_gt:（N,）为box的状态 0，1，-1
+        ignored_det:（M,）为box的状态 0，1，-1
+        dc_bboxes:(k,4)
+        metric:0: bbox, 1: bev, 2: 3d
+        min_overlap:最小iou阈值
+        thresh=0:忽略score低于此值的dt，根据recall点会传入41个阈值
+        compute_fp=False
+        compute_aos=False
+    Returns:
+        tp: 真正例 预测为真，实际为真
+        fp：假正例 预测为真，实际为假
+        fn：假负例 预测为假，实际为真
+        similarity:余弦相似度
+        thresholds[:thresh_idx]:与有效gt匹配dt分数
+    precision = TP / TP + FP 所有预测为真中，TP的比重
+    recall = TP / TP + FN 所有真实为真中，TP的比重
+    """
+
     det_size = dt_datas.shape[0]
     gt_size = gt_datas.shape[0]
     dt_scores = dt_datas[:, -1]
-    dt_alphas = dt_datas[:, 4]
+    dt_alphas = dt_datas[:, 4]      # 仅用于计算 aos
     gt_alphas = gt_datas[:, 4]
-    dt_bboxes = dt_datas[:, :4]
-    # gt_bboxes = gt_datas[:, :4]
+    dt_bboxes = dt_datas[:, :4]     # 用于与 DontCare 匹配
+    # gt_bboxes = gt_datas[:, :4]   # 没用上
 
-    assigned_detection = [False] * det_size
-    ignored_threshold = [False] * det_size
+    assigned_detection = [False] * det_size     # dt 是否匹配 gt
+    ignored_threshold = [False] * det_size      # dt 是否低于阈值, 仅用于计算 fp
+
     if compute_fp:
         for i in range(det_size):
             if (dt_scores[i] < thresh):
@@ -549,31 +575,34 @@ def compute_statistics_jit(overlaps,
     thresh_idx = 0
     delta = np.zeros((gt_size,))
     delta_idx = 0
-    for i in range(gt_size):
-        if ignored_gt[i] == -1:
-            continue
-        det_idx = -1
-        valid_detection = NO_DETECTION
-        max_overlap = 0
-        assigned_ignored_det = False
 
+    # 针对 gt, 寻找匹配的 dt
+    for i in range(gt_size):
+        if ignored_gt[i] == -1:     # 若 gt 无效
+            continue
+        det_idx = -1                    # 与 gt 匹配的最佳 dt 的索引
+        valid_detection = NO_DETECTION  # 最佳 dt 的分数
+        max_overlap = 0                 # 最佳 dt 的 iou
+        assigned_ignored_det = False    # 标记是否匹配到 dt
+
+        # 遍历 dt
         for j in range(det_size):
-            if (ignored_det[j] == -1):
+            if (ignored_det[j] == -1):  # 若 dt 无效
                 continue
-            if (assigned_detection[j]):
+            if (assigned_detection[j]): # 若 dt 已匹配
                 continue
-            if (ignored_threshold[j]):
+            if (ignored_threshold[j]):  # 若 dt 低于阈值
                 continue
             overlap = overlaps[j, i]
             dt_score = dt_scores[j]
             if (not compute_fp and (overlap > min_overlap)
-                    and dt_score > valid_detection):
+                    and dt_score > valid_detection):    # 倾向于匹配分数高的 dt，而非 iou 高的 dt
                 det_idx = j
                 valid_detection = dt_score
             elif (compute_fp and (overlap > min_overlap)
                   and (overlap > max_overlap or assigned_ignored_det)
                   and ignored_det[j] == 0):
-                max_overlap = overlap
+                max_overlap = overlap       # 倾向于匹配 iou 高的 dt，而非分数高的 dt
                 det_idx = j
                 valid_detection = 1
                 assigned_ignored_det = False
@@ -585,22 +614,23 @@ def compute_statistics_jit(overlaps,
                 assigned_ignored_det = True
 
         if (valid_detection == NO_DETECTION) and ignored_gt[i] == 0:
-            fn += 1
+            fn += 1    # 未匹配到 dt，且 gt 有效
         elif ((valid_detection != NO_DETECTION)
               and (ignored_gt[i] == 1 or ignored_det[det_idx] == 1)):
-            assigned_detection[det_idx] = True
+            # 匹配到 dt，但 gt 或 dt 无效
+            assigned_detection[det_idx] = True  # 标记 dt 已匹配
         elif valid_detection != NO_DETECTION:
             # only a tp add a threshold.
             tp += 1
             # thresholds.append(dt_scores[det_idx])
-            thresholds[thresh_idx] = dt_scores[det_idx]
+            thresholds[thresh_idx] = dt_scores[det_idx]     # 保存匹配的 dt 分数
             thresh_idx += 1
-            if compute_aos:
+            if compute_aos:     # 因寻找到匹配的 dt，计算 aos
                 # delta.append(gt_alphas[i] - dt_alphas[det_idx])
                 delta[delta_idx] = gt_alphas[i] - dt_alphas[det_idx]
                 delta_idx += 1
 
-            assigned_detection[det_idx] = True
+            assigned_detection[det_idx] = True  # 标记 dt 已匹配
     if compute_fp:
         for i in range(det_size):
             if (not (assigned_detection[i] or ignored_det[i] == -1
@@ -711,7 +741,7 @@ def calculate_iou_partly(gt_annos,
         z_axis: height axis. kitti camera use 1, lidar use 2.
     """
     assert len(gt_annos) == len(dt_annos)
-    total_dt_num = np.stack([len(a["name"]) for a in dt_annos], 0)
+    total_dt_num = np.stack([len(a["name"]) for a in dt_annos], 0)  # [3768], 每个场景的 dt 数量
     total_gt_num = np.stack([len(a["name"]) for a in gt_annos], 0)
     num_examples = len(gt_annos)
     split_parts = get_split_parts(num_examples, num_parts)
@@ -759,7 +789,7 @@ def calculate_iou_partly(gt_annos,
                 z_center=z_center).astype(np.float64)
         else:
             raise ValueError("unknown metric")
-        parted_overlaps.append(overlap_part)
+        parted_overlaps.append(overlap_part)    # 一块分割的 overlaps 矩阵, 后续会拆分成多个场景的 overlaps
         example_idx += num_part
     overlaps = []
     example_idx = 0
@@ -777,7 +807,7 @@ def calculate_iou_partly(gt_annos,
             gt_num_idx += gt_box_num
             dt_num_idx += dt_box_num
         example_idx += num_part
-
+    # overlaps: list(3768), 包含每个场景的 overlaps
     return overlaps, parted_overlaps, total_gt_num, total_dt_num
 
 
@@ -839,7 +869,7 @@ def eval_class_v3(gt_annos,
     """
     assert len(gt_annos) == len(dt_annos)
     num_examples = len(gt_annos)
-    split_parts = get_split_parts(num_examples, num_parts)
+    split_parts = get_split_parts(num_examples, num_parts)  # 50 * [75] + [18]
 
     rets = calculate_iou_partly(
         dt_annos,
@@ -849,31 +879,47 @@ def eval_class_v3(gt_annos,
         z_axis=z_axis,
         z_center=z_center)
     overlaps, parted_overlaps, total_dt_num, total_gt_num = rets
+    # overlaps共3769个元素，每个元素代表了一帧点云的iou
+    # parted_overlaps共51个元素，表示每个part的iou
+    # total_gt_num共3769个元素，表示每帧点云的gt_box的数量
+    # total_dt_num共3769个元素，表示每帧点云的det_box的数量
     N_SAMPLE_PTS = 41
     num_minoverlap = len(min_overlaps)
     num_class = len(current_classes)
     num_difficulty = len(difficultys)
+
+    # PR 结果初始化, [3, 3, 3, 41]
     precision = np.zeros(
         [num_class, num_difficulty, num_minoverlap, N_SAMPLE_PTS])
     recall = np.zeros(
         [num_class, num_difficulty, num_minoverlap, N_SAMPLE_PTS])
     aos = np.zeros([num_class, num_difficulty, num_minoverlap, N_SAMPLE_PTS])
     all_thresholds = np.zeros([num_class, num_difficulty, num_minoverlap, N_SAMPLE_PTS])
+
     for m, current_class in enumerate(current_classes):
         for l, difficulty in enumerate(difficultys):
             rets = _prepare_data(gt_annos, dt_annos, current_class, difficulty)
             (gt_datas_list, dt_datas_list, ignored_gts, ignored_dets,
              dontcares, total_dc_num, total_num_valid_gt) = rets
+            # gt_datas_list: 3769个元素，每个元素为(N,5)--> (x1, y1, x2, y2, alpha) 注意N不相等
+            # dt_datas_list: 3769个元素，每个元素为(M,6)--> (x1, y1, x2, y2, alpha, score) 注意M不相等
+            # ignored_gts: 3769个元素,每个元素为（N,）为每个box的状态 0，1，-1
+            # ignored_dets: 3769个元素,每个元素为（M,）为每个box的状态 0，1，-1
+            # 状态: 0有效，1忽略，-1其他
+            # dontcares: 3769个元素，每个元素为(k,4) 注意K不相等
+
+            # total_dc_num: 3769个元素，表示每帧点云dc box的数量
+            # total_num_valid_gt:全部有效box的数量: 2906
             for k, min_overlap in enumerate(min_overlaps[:, metric, m]):
                 thresholdss = []
-                for i in range(len(gt_annos)):
+                for i in range(len(gt_annos)):  # m: 评估模式, l: 难度, k: min_overlap, i: 场景
                     rets = compute_statistics_jit(
-                        overlaps[i],
-                        gt_datas_list[i],
-                        dt_datas_list[i],
-                        ignored_gts[i],
-                        ignored_dets[i],
-                        dontcares[i],
+                        overlaps[i],        # 场景iou（N,M）
+                        gt_datas_list[i],   # (N,5)--> (x1, y1, x2, y2, alpha)
+                        dt_datas_list[i],   # (M,6)--> (x1, y1, x2, y2, alpha, score)
+                        ignored_gts[i],     # (N,) 0,1,-1
+                        ignored_dets[i],    # (M,) 0，1，-1
+                        dontcares[i],       # (k, 4)
                         metric,
                         min_overlap=min_overlap,
                         thresh=0.0,
@@ -1082,17 +1128,17 @@ def get_official_eval_result(gt_annos,
         gt_annos and dt_annos must contains following keys:
         [bbox, location, dimensions, rotation_y, score]
     """
-    overlap_mod = np.array([[0.7, 0.5, 0.5, 0.7, 0.5, 0.7, 0.7, 0.7],
+    overlap_mod = np.array([[0.7, 0.5, 0.5, 0.7, 0.5, 0.7, 0.7, 0.7],   # [难度, 类别]
                             [0.7, 0.5, 0.5, 0.7, 0.5, 0.7, 0.7, 0.7],
                             [0.7, 0.5, 0.5, 0.7, 0.5, 0.7, 0.7, 0.7]])
     overlap_easy = np.array([[0.7, 0.5, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5],
                              [0.5, 0.25, 0.25, 0.5, 0.25, 0.5, 0.5, 0.5],
                              [0.5, 0.25, 0.25, 0.5, 0.25, 0.5, 0.5, 0.5]])
     # min_overlaps = np.stack([overlap_mod, overlap_easy], axis=0)  # [2, 3, 5]
-    overlap_easy2 = np.array([[0.7, 0.5, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5],
+    overlap_easy2 = np.array([[0.7, 0.5, 0.5, 0.7, 0.5, 0.5, 0.5, 0.5],     # 新加入的阈值
                               [0.3, 0.25, 0.25, 0.5, 0.25, 0.5, 0.5, 0.5],
                               [0.3, 0.25, 0.25, 0.5, 0.25, 0.5, 0.5, 0.5]])
-    min_overlaps = np.stack([overlap_mod, overlap_easy, overlap_easy2], axis=0)
+    min_overlaps = np.stack([overlap_mod, overlap_easy, overlap_easy2], axis=0)     # [3,3,8]
     class_to_name = {
         0: 'Car',
         1: 'Pedestrian',
@@ -1113,7 +1159,7 @@ def get_official_eval_result(gt_annos,
         else:
             current_classes_int.append(curcls)
     current_classes = current_classes_int
-    min_overlaps = min_overlaps[:, :, current_classes]
+    min_overlaps = min_overlaps[:, :, current_classes]  # [3, 3, num_class]
     result = ''
     # check whether alpha is valid
     compute_aos = False
@@ -1127,8 +1173,8 @@ def get_official_eval_result(gt_annos,
         dt_annos,
         current_classes,
         min_overlaps,
-        compute_aos,
-        difficultys,
+        compute_aos,    # = True
+        difficultys,    # = [0, 1, 2]
         z_axis=z_axis,
         z_center=z_center)
     detail = {}
@@ -1327,8 +1373,22 @@ def eval_from_scrach(gt_dir, det_dir, eval_cls_list=None, ap_mode=40):
     print('------------------evalute model: {}--------------------'.format(det_dir.split('/')[-2]))
     for cls in eval_cls_list:
         print('*' * 20 + cls + '*' * 20)
+        # all_gt: list(3769), each label is a dict
+        # {'bbox': array([[599.41, 156.4 , 629.75, 189.25],
+        #        [387.63, 181.54, 423.81, 203.12],
+        #        [559.62, 175.83, 575.4 , 183.15]], dtype=float32),
+        # 'alpha': array([-1.57, -1.57, -1.57], dtype=float32),
+        # 'occluded': array([0., 0., 0.], dtype=float32),
+        # ...}
         res = get_official_eval_result(all_gt, all_det, cls, z_axis=1, z_center=1)
         Car_res = res['detail'][cls]
         for k in Car_res.keys():
             print(k, Car_res[k])
     print('\n')
+
+if __name__ == '__main__':
+    eval_from_scrach(
+        "/mnt/e/DataSet/kitti/training/label_2",
+        "/home/a/DID-M3D/tmp_test/test/checkpoint_epoch_150/data",
+        ["Car"],
+        ap_mode=40)
