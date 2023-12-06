@@ -76,13 +76,13 @@ class DID(nn.Module):
             nn.BatchNorm2d(self.head_conv),
             nn.ReLU(inplace=True), nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(self.head_conv, 24, kernel_size=1, stride=1, padding=0, bias=True))
-        # pred 分类头, 0: 不在阈值内, 1: 在阈值内
+        # pred 分类头, 判断 iou 3d 在不在阈值 0.7 内
         self.pred = nn.Sequential(
             nn.Conv2d(channels[self.first_level] + 2 + self.cls_num, self.head_conv, kernel_size=3, padding=1,
                       bias=True),
             nn.BatchNorm2d(self.head_conv),
             nn.ReLU(inplace=True), nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(self.head_conv, 2, kernel_size=1, stride=1, padding=0, bias=True))
+            nn.Conv2d(self.head_conv, 1, kernel_size=1, stride=1, padding=0, bias=True))
         # 深度检测分为 4 个头, 且都是用 LeakyReLU
         self.vis_depth = nn.Sequential(
             nn.Conv2d(channels[self.first_level] + 2 + self.cls_num, self.head_conv, kernel_size=3, padding=1,
@@ -257,7 +257,7 @@ class DID(nn.Module):
             res['size_3d'] = torch.zeros([1, 3]).to(device_id)
             res['train_tag'] = torch.zeros(1).type(torch.bool).to(device_id)
             res['heading'] = torch.zeros([1, 24]).to(device_id)
-            res['pred'] = torch.zeros([1, 2]).to(device_id)
+            res['pred'] = torch.zeros([1, 1]).to(device_id)
 
             res['vis_depth'] = torch.zeros([1, 7, 7]).to(device_id)
             res['att_depth'] = torch.zeros([1, 7, 7]).to(device_id)

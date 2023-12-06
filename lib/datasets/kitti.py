@@ -188,9 +188,12 @@ class KITTI(data.Dataset):
             heading_bin = np.zeros((self.max_objs, 1), dtype=np.int64)
             heading_res = np.zeros((self.max_objs, 1), dtype=np.float32)
             src_size_3d = np.zeros((self.max_objs, 3), dtype=np.float32)
+            mean_size = np.zeros((self.max_objs, 3), dtype=np.float32)
             size_3d = np.zeros((self.max_objs, 3), dtype=np.float32)
             offset_3d = np.zeros((self.max_objs, 2), dtype=np.float32)
             p2 = np.zeros((self.max_objs, 3, 4), dtype=np.float32)
+            inv_r0 = np.zeros((self.max_objs, 3, 3), dtype=np.float32)
+            c2v = np.zeros((self.max_objs, 3, 4), dtype=np.float32)
             height2d = np.zeros((self.max_objs, 1), dtype=np.float32)
             cls_ids = np.zeros((self.max_objs), dtype=np.int64)
             indices = np.zeros((self.max_objs), dtype=np.int64)
@@ -272,8 +275,8 @@ class KITTI(data.Dataset):
                 # encoding 3d offset & size_3d
                 offset_3d[i] = center_3d - center_heatmap
                 src_size_3d[i] = np.array([objects[i].h, objects[i].w, objects[i].l], dtype=np.float32)
-                mean_size = self.cls_mean_size[self.cls2id[objects[i].cls_type]]
-                size_3d[i] = src_size_3d[i] - mean_size
+                mean_size[i] = self.cls_mean_size[self.cls2id[objects[i].cls_type]]
+                size_3d[i] = src_size_3d[i] - mean_size[i]
 
                 # objects[i].trucation <=0.5 and objects[i].occlusion<=2 and (objects[i].box2d[3]-objects[i].box2d[1])>=25:
                 if objects[i].trucation <= 0.5 and objects[i].occlusion <= 2:
@@ -283,6 +286,8 @@ class KITTI(data.Dataset):
                 bbox3d_lidar[i] = rect2lidar(bbox3d, calib).reshape(-1)  # [7]
 
                 p2[i] = calib.P2
+                inv_r0[i] = np.linalg.inv(calib.R0)
+                c2v[i] = calib.C2V
                 # [7, 7]
                 roi_depth = roi_align(torch.from_numpy(down_d_trans).unsqueeze(0).unsqueeze(0).type(torch.float32),
                                       [torch.tensor(bbox_2d).unsqueeze(0)], [7, 7]).numpy()[0, 0]
@@ -301,6 +306,7 @@ class KITTI(data.Dataset):
                        'offset_2d': offset_2d,
                        'indices': indices,
                        'size_3d': size_3d,
+                       'mean_size': mean_size,
                        'offset_3d': offset_3d,
                        'heading_bin': heading_bin,
                        'heading_res': heading_res,
@@ -309,6 +315,8 @@ class KITTI(data.Dataset):
                        'bbox3d_lidar': bbox3d_lidar,
                        'uv': uv,
                        'p2': p2,
+                       'inv_r0': inv_r0,
+                       'c2v': c2v,
                        'vis_depth': vis_depth,
                        'att_depth': att_depth,
                        'depth_mask': depth_mask
