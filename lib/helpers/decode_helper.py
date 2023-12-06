@@ -30,7 +30,11 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
             bbox = [x - w / 2, y - h / 2, x + w / 2, y + h / 2]
 
             depth = dets[i, j, -2]
-            score *= dets[i, j, -1]
+
+            # score *= dets[i, j, -1]
+            # score = dets[i, j, -1] if dets[i, j, -1] < score else score
+            # score = score
+            # score = dets[i, j, -1]
 
             # heading angle decoding
             alpha = get_heading_angle(dets[i, j, 6:30])
