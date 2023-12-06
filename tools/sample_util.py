@@ -272,7 +272,7 @@ class Sample:
         return cord, rgb
 
     @staticmethod
-    def get_3d_center_in_2d(xyz, calib):
+    def get_3d_center_in_2d(xyz, calib):    # kitti 的 pos 是底部中心, xyz 需要为实际中心
         xyz = xyz.reshape(1, -1)[:, :3]
         uv, _ = calib.rect_to_img(xyz)
         uv = np.round(uv).astype(int).reshape(2)
@@ -283,8 +283,9 @@ class Sample:
         image, depth, calib, label = self.image, self.depth, self.calib, self.label
         calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
 
-        center = self.get_3d_center_in_2d(label.pos, self.calib)
-        center_ = self.get_3d_center_in_2d(bbox3d_[:3], calib_)
+        center = self.get_3d_center_in_2d(label.pos + [0, -label.h / 2, 0], self.calib)
+        center_ = self.get_3d_center_in_2d(bbox3d_[:3] +  [0, -bbox3d_[4] / 2, 0], calib_)
+
         dry = bbox3d_[6] - label.ry  # ry_ - ry
         h, w = depth.shape
 

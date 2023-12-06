@@ -912,8 +912,8 @@ def eval_class_v3(gt_annos,
             # total_num_valid_gt:全部有效box的数量: 2906
             for k, min_overlap in enumerate(min_overlaps[:, metric, m]):
                 thresholdss = []
-                for i in range(len(gt_annos)):  # m: 评估模式, l: 难度, k: min_overlap, i: 场景
-                    rets = compute_statistics_jit(
+                for i in range(len(gt_annos)):  # m: 类型, l: 难度, k: min_overlap, i: 场景
+                    rets = compute_statistics_jit(  # 没有真正计算指标，而是获取 thresholdss，然后计算41个recall阈值点
                         overlaps[i],        # 场景iou（N,M）
                         gt_datas_list[i],   # (N,5)--> (x1, y1, x2, y2, alpha)
                         dt_datas_list[i],   # (M,6)--> (x1, y1, x2, y2, alpha, score)

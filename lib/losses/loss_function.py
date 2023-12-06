@@ -19,10 +19,12 @@ class Hierarchical_Task_Learning:
                            'offset3d_loss': ['size2d_loss', 'offset2d_loss'],
                            'size3d_loss': ['size2d_loss', 'offset2d_loss'],
                            'heading_loss': ['size2d_loss', 'offset2d_loss'],
-                           'depth_loss': ['size2d_loss', 'size3d_loss', 'offset2d_loss']}
+                           'depth_loss': ['size2d_loss', 'size3d_loss', 'offset2d_loss'],
+                           'pred_loss': ['size2d_loss', 'size3d_loss', 'offset2d_loss', 'depth_loss', 'heading_loss']
+                         }
 
     def compute_weight(self, current_loss, epoch):
-        T = 140     # TODO: 总 epoch 的获取, 这里应该修改
+        T = 140
         # compute initial weights
         loss_weights = {}
         eval_loss_input = torch.cat([_.unsqueeze(0) for _ in current_loss.values()]).unsqueeze(0)   # [1, 7]
@@ -77,6 +79,7 @@ class DIDLoss(nn.Module):
             self.stat['offset3d_loss'] = 0
             self.stat['size3d_loss'] = 0
             self.stat['heading_loss'] = 0
+            self.stat['pred_loss'] = 0
         else:
             bbox2d_loss = self.compute_bbox2d_loss(preds, targets)
             bbox3d_loss = self.compute_bbox3d_loss(preds, targets)
@@ -115,7 +118,9 @@ class DIDLoss(nn.Module):
         att_offset_target = extract_target_from_tensor(target['att_depth'], target[mask_type])
         depth_mask_target = extract_target_from_tensor(target['depth_mask'], target[mask_type])
         ins_depth_target = extract_target_from_tensor(target['depth'], target[mask_type])
-
+        level_target = extract_target_from_tensor(target['level'], target[mask_type])
+        bbox3d_lidar_target = extract_target_from_tensor(target['bbox3d_lidar'], target[mask_type])
+        uv_target = extract_target_from_tensor(target['uv'], target[mask_type])
         vis_depth_uncer = input['vis_depth_uncer'][input['train_tag']]
         att_depth_uncer = input['att_depth_uncer'][input['train_tag']]
 
@@ -135,6 +140,8 @@ class DIDLoss(nn.Module):
 
         depth_loss = vis_depth_loss + att_depth_loss + ins_depth_loss
 
+
+
         # compute offset3d loss
         offset3d_input = input['offset_3d'][input['train_tag']]
         offset3d_target = extract_target_from_tensor(target['offset_3d'], target[mask_type])
@@ -145,11 +152,15 @@ class DIDLoss(nn.Module):
         size3d_target = extract_target_from_tensor(target['size_3d'], target[mask_type])
         size3d_loss = F.l1_loss(size3d_input, size3d_target, reduction='mean')
 
+        heading_input = input['heading'][input['train_tag']]
         # compute heading loss
-        heading_loss = compute_heading_loss(input['heading'][input['train_tag']],
+        heading_loss = compute_heading_loss(heading_input,
                                             target[mask_type],  ## NOTE
                                             target['heading_bin'],
                                             target['heading_res'])
+        alpha = get_alpha(heading_input)
+
+
 
         loss = depth_loss + offset3d_loss + size3d_loss + heading_loss
 
@@ -172,6 +183,32 @@ class DIDLoss(nn.Module):
 
 
 ### ======================  auxiliary functions  =======================
+
+def get_bbox3d_lidar(uv, depth, size3d, alpha):
+    """
+    Args:
+        uv: [M, 2]
+        depth: [M, 1]
+        size3d: [M, 3]
+        alpha: [M, 1]
+
+    Returns:
+        bbox3d_lidar: [M, 7]
+    """
+
+
+def get_alpha(heading):
+    """
+    Args:
+        heading, [M, 24], 12 for bin, 12 for res
+    Returns:
+        alpha: [M, 1]
+    """
+    heading_bin, heading_res = heading[:, 0:12], heading[:, 12:24]
+    cls = torch.argmax(heading_bin, dim=1)
+    res = torch.gather(heading_res, dim=1, index=cls.unsqueeze(1)).squeeze(1)
+    alpha = cls * 2 * torch.pi / 12 + res
+    return alpha.unsqueeze(1)
 
 def extract_input_from_tensor(input, ind, mask):
     input = _transpose_and_gather_feat(input, ind)  # B*C*H*W --> B*K*C
