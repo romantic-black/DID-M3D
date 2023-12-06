@@ -153,7 +153,7 @@ class SampleDatabase:
         return cos >= limit
 
     @staticmethod
-    def sample_put_on_plane(bbox3d, ground, radius=2, min_num=10, max_var=0.5e-2, max_degree=20):
+    def sample_put_on_plane(bbox3d, ground, radius=3, min_num=25, max_var=0.5e-2, max_degree=20):
         bbox3d = bbox3d.copy()
         flag = np.zeros((bbox3d.shape[0]), dtype=bool)
         for i, pos in enumerate(bbox3d[:, :3]):
@@ -197,7 +197,7 @@ class SampleDatabase:
 
         # 判断样本是否与障碍物重叠，第三次筛除
         points_in_lidar = calib_.rect_to_lidar(non_ground)
-        flag3 = ~ check_points_in_boxes3d(points_in_lidar, bbox3d_in_lidar[flag2])
+        flag3 = ~ check_points_in_boxes3d(points_in_lidar, bbox3d_in_lidar[flag2], enlarge=0.5)
         if flag3.sum() == 0:
             return []
 
