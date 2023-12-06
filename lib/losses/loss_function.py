@@ -228,10 +228,11 @@ def get_bbox3d(uv, depth, size3d, alpha, p2):
         bbox3d_lidar: [M, 7]
     """
     fu, fv, cu, cv, tx, ty = p2[:, 0, 0], p2[:, 1, 1], p2[:, 0, 2], p2[:, 1, 2], p2[:, 0, 3], p2[:, 1, 3]
-    u, v = uv[:, 0].unsqueeze(1), uv[:, 1].unsqueeze(1)
+    fu, fv, cu, cv, tx, ty = fu.unsqueeze(1), fv.unsqueeze(1), cu.unsqueeze(1), cv.unsqueeze(1), tx.unsqueeze(1), ty.unsqueeze(1)
+    u, v = uv[:, 0:1], uv[:, 1:]
     x = (u - cu) * depth / fu + tx
     y = (v - cv) * depth / fv + ty
-    xyz = torch.stack([x, y, depth], dim=1)
+    xyz = torch.stack([x, y, depth], dim=1).squeeze(2)
     lhw = size3d[:, [2, 0, 1]]
     ry = alpha2ry(alpha, x, cu, fu)
     bbox3d = torch.cat([xyz, lhw, ry], dim=1)

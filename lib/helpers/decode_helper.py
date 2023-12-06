@@ -98,6 +98,7 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
     offset_3d = outputs['offset_3d'].view(batch, K, -1)
 
     pred = outputs['pred'].view(batch, K, -1)
+    pred = torch.clamp(pred.sigmoid_(), min=1e-4, max=1 - 1e-4)
 
     heatmap = torch.clamp(heatmap.sigmoid_(), min=1e-4, max=1 - 1e-4)
 
@@ -114,7 +115,7 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
     ys3d = ys.view(batch, K, 1) + offset_3d[:, :, 1:2]
 
     cls_ids = cls_ids.view(batch, K, 1).float()
-    scores = scores.view(batch, K, 1)       # 没有融合深度信息
+    scores = scores.view(batch, K, 1)
 
     # check shape
     xs2d = xs2d.view(batch, K, 1)
