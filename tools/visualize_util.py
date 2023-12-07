@@ -1,6 +1,12 @@
 import open3d as o3d
 import numpy as np
+from matplotlib import pyplot as plt
 
+def plt_show(img, rgb=True):
+    if rgb:
+        img = img[:, :, ::-1]
+    plt.imshow(img)
+    plt.show()
 
 def generate_corners(bbox3d):
     corners = []

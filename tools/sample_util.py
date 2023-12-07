@@ -197,7 +197,7 @@ class SampleDatabase:
 
         # 判断样本是否与障碍物重叠，第三次筛除
         points_in_lidar = calib_.rect_to_lidar(non_ground)
-        flag3 = ~ check_points_in_boxes3d(points_in_lidar, bbox3d_in_lidar[flag2], enlarge=0.5)
+        flag3 = ~ check_points_in_boxes3d(points_in_lidar, bbox3d_in_lidar[flag2])
         if flag3.sum() == 0:
             return []
 
@@ -207,13 +207,20 @@ class SampleDatabase:
         return res
 
     @staticmethod
-    def add_samples_to_scene(samples, image, depth, max_num=10):
+    def add_samples_to_scene(samples, image, depth, max_num=10, use_edge_blur=False):
         image_, depth_ = image.copy(), depth.copy()
         flag = np.zeros(len(samples), dtype=bool)
+        mask = np.zeros(image.shape[:2], dtype=bool)
         samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)[:max_num]
         for i, sample in enumerate(samples):
-            image_, depth_, flag[i] = sample.cover(image_, depth_)
+            image_, depth_, mask, flag[i] = sample.cover(image_, depth_, mask)
 
+        if use_edge_blur:
+            blur = cv2.GaussianBlur(image_, (3, 3), 0)
+            kernel = np.ones((3, 3), np.uint8)
+            mask_ = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
+            blur_place = mask_.astype(bool) != mask
+            image_[blur_place] = blur[blur_place]
         return image_, depth_, [sample for i, sample in enumerate(samples) if flag[i]]
 
 
@@ -308,27 +315,28 @@ class Sample:
 
         return image_, depth_, bbox2d_.tolist()
 
-    def cover(self, image, depth, area_threshold=0.5):
+    def cover(self, image, depth, mask, area_threshold=0.5):
         assert image.shape[:2] == depth.shape
-        blank_rgb, blank_d = image.copy(), depth.copy()
+        blank_rgb, blank_d, mask = image.copy(), depth.copy(), mask.copy()
         image_, depth_, bbox2d_ = self.image_, self.depth_, self.bbox2d_
 
         u_min, v_min, u_max, v_max = bbox2d_
         # 避免 bbox2d_ 在图像外
         if u_min < 0 or v_min < 0 or u_max > image.shape[1] or v_max > image.shape[0]:
-            return blank_rgb, blank_d, False
+            return blank_rgb, blank_d, mask, False
 
         d_in_bbox2d = blank_d[v_min: v_max, u_min: u_max]
         valid = (depth_ > 1e-2) & (depth_ < d_in_bbox2d)
         area = (v_max - v_min) * (u_max - u_min) - np.sum(depth_ <= 1e-2)
         valid_rate = np.sum(valid) / area
         if valid_rate <= area_threshold:
-            return blank_rgb, blank_d, False
+            return blank_rgb, blank_d, mask, False
 
         blank_rgb[v_min: v_max, u_min: u_max][valid] = image_[valid]
         blank_d[v_min: v_max, u_min: u_max][valid] = depth_[valid]
+        mask[v_min: v_max, u_min: u_max][valid] = True
 
-        return blank_rgb, blank_d, True
+        return blank_rgb, blank_d, mask, True
 
     def to_label(self):
         label = self.label
@@ -368,7 +376,7 @@ if __name__ == '__main__':
 
         time1 = time.time()
         samples = database.get_samples(ground, non_ground, calib_, plane_)
-        image_, depth_, samples = database.add_samples_to_scene(samples, image, depth)
+        image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
         time2 = time.time()
         mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
