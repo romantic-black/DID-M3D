@@ -7,6 +7,7 @@ from lib.losses.focal_loss import focal_loss_cornernet as focal_loss
 from lib.losses.uncertainty_loss import laplacian_aleatoric_uncertainty_loss
 from aug.iou3d_nms.iou3d_nms_utils import boxes_aligned_iou3d_gpu
 
+
 class Hierarchical_Task_Learning:
     def __init__(self, epoch0_loss, stat_epoch_nums=5):
         self.index2term = [*epoch0_loss.keys()]
@@ -20,7 +21,6 @@ class Hierarchical_Task_Learning:
                            'size3d_loss': ['size2d_loss', 'offset2d_loss'],
                            'heading_loss': ['size2d_loss', 'offset2d_loss'],
                            'depth_loss': ['size2d_loss', 'size3d_loss', 'offset2d_loss'],
-                           'iou_loss': ['size2d_loss', 'size3d_loss', 'offset2d_loss', 'depth_loss', 'heading_loss']
                            }
 
     def compute_weight(self, current_loss, epoch):
@@ -79,7 +79,6 @@ class DIDLoss(nn.Module):
             self.stat['offset3d_loss'] = 0
             self.stat['size3d_loss'] = 0
             self.stat['heading_loss'] = 0
-            self.stat['iou_loss'] = 0
         else:
             bbox2d_loss = self.compute_bbox2d_loss(preds, targets)
             bbox3d_loss = self.compute_bbox3d_loss(preds, targets)
@@ -137,9 +136,6 @@ class DIDLoss(nn.Module):
 
         depth_loss = vis_depth_loss + att_depth_loss + ins_depth_loss
 
-        merge_prob = (-(0.5 * ins_depth_uncer).exp()).exp()
-        merge_depth = (torch.sum((ins_depth * merge_prob).view(-1, 7 * 7), dim=-1) /
-                       torch.sum(merge_prob.view(-1, 7 * 7), dim=-1)).unsqueeze(1)
 
         # compute offset3d loss
         offset3d_input = input['offset_3d'][input['train_tag']]
@@ -149,7 +145,6 @@ class DIDLoss(nn.Module):
         # compute size3d loss
         size3d_input = input['size_3d'][input['train_tag']]
         size3d_target = extract_target_from_tensor(target['size_3d'], target[mask_type])
-        mean_size_target = extract_target_from_tensor(target['mean_size'], target[mask_type])
         size3d_loss = F.l1_loss(size3d_input, size3d_target, reduction='mean')
 
         heading_input = input['heading'][input['train_tag']]
@@ -160,26 +155,6 @@ class DIDLoss(nn.Module):
                                             target['heading_res'])
         loss = depth_loss + offset3d_loss + size3d_loss + heading_loss
 
-        # iou loss
-        pred_input = input['pred'][input['train_tag']]
-        alpha = get_alpha(heading_input)
-        size3d = size3d_input + mean_size_target
-        bbox3d_lidar_target = extract_target_from_tensor(target['bbox3d_lidar'], target[mask_type])
-        uv_target = extract_target_from_tensor(target['uv'], target[mask_type])
-        p2_target = extract_target_from_tensor(target['p2'], target[mask_type])
-        inv_r0_target = extract_target_from_tensor(target['inv_r0'], target[mask_type])
-        c2v_target = extract_target_from_tensor(target['c2v'], target[mask_type])
-
-        bbox3d_lidar = get_bbox3d(uv_target, merge_depth, size3d, alpha, p2_target)
-        bbox3d_lidar = rect2lidar(bbox3d_lidar, inv_r0_target, c2v_target)
-        iou = boxes_aligned_iou3d_gpu(bbox3d_lidar, bbox3d_lidar_target)
-        threshold = 0.7
-        in_range = (iou > threshold).float()
-        iou_loss = F.binary_cross_entropy_with_logits(pred_input, in_range, reduction='mean')
-        loss += iou_loss
-
-
-
         if depth_loss != depth_loss:
             print('badNAN----------------depth_loss', depth_loss)
             print(vis_depth_loss, att_depth_loss, ins_depth_loss, depth_mask_target.sum())
@@ -189,14 +164,11 @@ class DIDLoss(nn.Module):
             print('badNAN----------------size3d_loss', size3d_loss)
         if heading_loss != heading_loss:
             print('badNAN----------------heading_loss', heading_loss)
-        if iou_loss != iou_loss:
-            print('badNAN----------------iou_loss', iou_loss)
 
         self.stat['depth_loss'] = depth_loss
         self.stat['offset3d_loss'] = offset3d_loss
         self.stat['size3d_loss'] = size3d_loss
         self.stat['heading_loss'] = heading_loss
-        self.stat['iou_loss'] = iou_loss
 
         return loss
 
@@ -216,6 +188,7 @@ def xyz_from_rect_to_lidar(xyz, inv_r0, c2v):
     tmp = (tmp @ c2v.permute(0, 2, 1)).reshape(-1, 3)
     return tmp
 
+
 def get_bbox3d(uv, depth, size3d, alpha, p2):
     """
     Args:
@@ -228,7 +201,8 @@ def get_bbox3d(uv, depth, size3d, alpha, p2):
         bbox3d_lidar: [M, 7]
     """
     fu, fv, cu, cv, tx, ty = p2[:, 0, 0], p2[:, 1, 1], p2[:, 0, 2], p2[:, 1, 2], p2[:, 0, 3], p2[:, 1, 3]
-    fu, fv, cu, cv, tx, ty = fu.unsqueeze(1), fv.unsqueeze(1), cu.unsqueeze(1), cv.unsqueeze(1), tx.unsqueeze(1), ty.unsqueeze(1)
+    fu, fv, cu, cv, tx, ty = fu.unsqueeze(1), fv.unsqueeze(1), cu.unsqueeze(1), cv.unsqueeze(1), tx.unsqueeze(
+        1), ty.unsqueeze(1)
     u, v = uv[:, 0:1], uv[:, 1:]
     x = (u - cu) * depth / fu + tx
     y = (v - cv) * depth / fv + ty
@@ -237,6 +211,7 @@ def get_bbox3d(uv, depth, size3d, alpha, p2):
     ry = alpha2ry(alpha, x, cu, fu)
     bbox3d = torch.cat([xyz, lhw, ry], dim=1)
     return bbox3d
+
 
 def rect2lidar(bbox3d, inv_r0, c2v):
     xyz, lhw, ry = bbox3d[:, 0:3], bbox3d[:, 3:6], bbox3d[:, 6:]
@@ -297,6 +272,88 @@ def compute_heading_loss(input, mask, target_cls, target_reg):
     reg_loss = F.l1_loss(input_reg, target_reg, reduction='mean')
 
     return cls_loss + reg_loss
+
+
+class IouLoss(nn.Module):
+    def __init__(self, alpha, gamma):
+        super().__init__()
+        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma)
+        self.state = {}
+
+    def forward(self, preds, targets):
+        if targets['mask_2d'].sum() == 0:
+            iou_loss = 0
+            self.state['iou_loss'] = 0
+        else:
+            iou_loss = self.compute_iou_loss(preds, targets)
+
+        return float(iou_loss), self.state
+
+    def compute_iou_loss(self, input, target, mask_type='mask_2d'):
+        ins_depth = input['ins_depth'][input['train_tag']]
+        ins_depth_uncer = input['ins_depth_uncer'][input['train_tag']]
+
+        merge_prob = (-(0.5 * ins_depth_uncer).exp()).exp()
+        merge_depth = (torch.sum((ins_depth * merge_prob).view(-1, 7 * 7), dim=-1) /
+                       torch.sum(merge_prob.view(-1, 7 * 7), dim=-1)).unsqueeze(1)
+
+        # compute size3d loss
+        size3d_input = input['size_3d'][input['train_tag']]
+        mean_size_target = extract_target_from_tensor(target['mean_size'], target[mask_type])
+
+        heading_input = input['heading'][input['train_tag']]
+        # compute heading loss
+
+        # iou loss
+        pred_input = input['pred'][input['train_tag']]
+        alpha = get_alpha(heading_input)
+        size3d = size3d_input + mean_size_target
+        bbox3d_lidar_target = extract_target_from_tensor(target['bbox3d_lidar'], target[mask_type])
+        uv_target = extract_target_from_tensor(target['uv'], target[mask_type])
+        p2_target = extract_target_from_tensor(target['p2'], target[mask_type])
+        inv_r0_target = extract_target_from_tensor(target['inv_r0'], target[mask_type])
+        c2v_target = extract_target_from_tensor(target['c2v'], target[mask_type])
+
+        bbox3d_lidar = get_bbox3d(uv_target, merge_depth, size3d, alpha, p2_target)
+        bbox3d_lidar = rect2lidar(bbox3d_lidar, inv_r0_target, c2v_target)
+        iou = boxes_aligned_iou3d_gpu(bbox3d_lidar, bbox3d_lidar_target)
+        threshold = 0.7
+        in_range = (iou > threshold).float()
+        iou_loss = self.focal_loss(pred_input, in_range)
+
+        if iou_loss != iou_loss:
+            print('badNAN----------------iou_loss', iou_loss)
+        self.state['iou_loss'] = iou_loss
+
+        return iou_loss
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha, gamma, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = torch.tensor(alpha)
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, pred, target):
+        """
+        Args:
+            pred: [M, 2]
+            target: [M, 1]
+        """
+        alpha = self.alpha[target]
+        log_softmax = torch.log_softmax(pred, dim=1)
+        logpt = torch.gather(log_softmax, dim=1, index=target.view(-1, 1))
+        logpt = logpt.view(-1)
+        ce_loss = -logpt
+        pt = torch.exp(logpt)
+        loss = alpha * (1 - pt) ** self.gamma * ce_loss
+        if self.reduction == "mean":
+            return torch.mean(loss)
+        if self.reduction == "sum":
+            return torch.sum(loss)
+        return loss
+
+
 
 
 '''    

@@ -97,9 +97,6 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
     size_3d = outputs['size_3d'].view(batch, K, -1)
     offset_3d = outputs['offset_3d'].view(batch, K, -1)
 
-    pred = outputs['pred'].view(batch, K, -1)
-    pred = torch.clamp(pred.sigmoid_(), min=1e-4, max=1 - 1e-4)
-
     heatmap = torch.clamp(heatmap.sigmoid_(), min=1e-4, max=1 - 1e-4)
 
     # perform nms on heatmaps
@@ -127,7 +124,7 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
     size_2d = size_2d.view(batch, K, 2)
 
     detections = torch.cat(
-        [cls_ids, scores, xs2d, ys2d, size_2d, heading, size_3d, xs3d, ys3d, merge_depth, pred], dim=2)
+        [cls_ids, scores, xs2d, ys2d, size_2d, heading, size_3d, xs3d, ys3d, merge_depth, merge_conf], dim=2)
 
     return detections
 
