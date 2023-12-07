@@ -110,7 +110,7 @@ class KITTI(data.Dataset):
 
         if use_aug:
             samples = database.get_samples(ground, non_ground, calib, plane)
-            image, depth, samples = database.add_samples_to_scene(samples, image, depth)
+            image, depth, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
             labels = merge_labels(labels, samples, calib, image.shape)
 
         return Image.fromarray(image), Image.fromarray(depth), labels, calib
