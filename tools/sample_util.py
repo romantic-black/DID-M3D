@@ -32,6 +32,7 @@ def merge_labels(labels, samples, calib_, image_shape):
         label.level = label.get_obj_level()
     return labels
 
+
 def area2occlusion(area):
     if area < 0.1:
         return 0
@@ -41,6 +42,7 @@ def area2occlusion(area):
         return 2
     else:
         return 3
+
 
 def to3d(image, depth, calib, bbox2d=None):
     assert image.shape[:2] == depth.shape
@@ -70,7 +72,13 @@ def to2d(cord, rgb, calib):
 
 
 class SampleDatabase:
-    def __init__(self, database_path, idx_list=None):
+    def __init__(self,
+                 database_path,
+                 idx_list=None,
+                 sample_num=30,
+                 x_range=(-15., 15.),
+                 z_range=(25., 65.),
+                 random_flip=1.):
         self.database_path = pathlib.Path(database_path)
         assert self.database_path.exists()
         self.image_path = self.database_path / "image"
@@ -81,14 +89,13 @@ class SampleDatabase:
         if idx_list is not None:
             [database.pop(key) for key in list(database.keys()) if key.split("_")[0] not in idx_list]
         self.database = list(database.values())
+        self.sample_num = sample_num
+        self.x_range = x_range
+        self.z_range = z_range
+        self.random_flip = random_flip
 
-        self.sample_group = {
-            "sample_num": 30,
-            "pointer": len(database),
-            "x_range": [[-15.], [15.]],
-            "z_range": [[25.], [65.]],
-            "indices": None
-        }
+        self.pointer = len(database)
+        self.indices = None
 
     @staticmethod
     def get_ry_(alpha, xyz_, calib_):
@@ -103,36 +110,61 @@ class SampleDatabase:
         y /= b
         return y
 
-    def sample_with_fixed_number(self, calib_, plane_):
-        database, sample_group = self.database, self.sample_group
-        sample_num, pointer, indices = int(sample_group['sample_num']), sample_group['pointer'], sample_group['indices']
-        low_x, high_x = sample_group["x_range"]
-        low_z, high_z = sample_group["z_range"]
+    def flip_sample(self, sample):
+        sample = sample.copy()
+        calib = sample['calib']
+        h, w = sample['image_shape']
+        calib.flip([w, h])
+        u_min, _, u_max, _ = sample['bbox2d']
+        sample['bbox2d'][0], sample['bbox2d'][2] = w - u_max, w - u_min
+        ry = np.pi - sample['label'].ry
+        if ry > np.pi: ry -= 2 * np.pi
+        if ry < -np.pi: ry += 2 * np.pi
+        sample['label'].ry = ry
+        sample['label'].pos[0] *= -1
+        sample['alpha'] = calib.ry2alpha(ry, w - (u_max + u_min) / 2)
+        sample['plane'][0] *= -1
+        sample['flipped'] = True
+        return sample
+
+    def sample_bbox3d(self, calib_, plane_, random_flip=0.):
+        samples, xyz_ = self.sample_xyz(plane_)
+        sample_num = len(samples)
+
+        for i, sample in enumerate(samples):
+            if np.random.rand() < random_flip:  # 随机翻转
+                samples[i] = self.flip_sample(sample)
+
+        alpha = np.array([[s['label'].alpha] for s in samples])
+        lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
+
+        # 采样 bbox3d
+        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(sample_num)])
+        bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
+
+        return samples, bbox3d_
+
+    def sample_xyz(self, plane_=None):
+        database = self.database
+        sample_num, pointer, indices = int(self.sample_num), self.pointer, self.indices
+        low_x, high_x = self.x_range
+        low_z, high_z = self.z_range
         if pointer >= len(database):
             indices = np.random.permutation(len(database))
             pointer = 0
 
         samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
         sample_num = len(samples)
-        # 获取原始 bbox3d
-        # xyz = np.array([s['label'].pos for s in samples])
-        alpha = np.array([[s['label'].alpha] for s in samples])
-        lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
-        # calib = [s['calib'] for s in samples]
-        # plane = [s['plane'] for s in samples]
 
-        # 采样 bbox3d
         x_ = np.random.uniform(low=low_x, high=high_x, size=(sample_num, 1))
         z_ = np.random.uniform(low=low_z, high=high_z, size=(sample_num, 1))
         y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_) for i in range(sample_num)])
         xyz_ = np.concatenate([x_, y_, z_], axis=1)
-        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(sample_num)])
-        bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
 
         pointer += sample_num
-        sample_group['pointer'] = pointer
-        sample_group['indices'] = indices
-        return samples, bbox3d_
+        self.pointer = pointer
+        self.indices = indices
+        return samples, xyz_
 
     def sample_with_fixed_idx(self, xyz_, calib_, index):
         n = xyz_.shape[0]
@@ -176,7 +208,7 @@ class SampleDatabase:
         return bbox3d, flag
 
     def get_samples(self, ground, non_ground, calib_, plane_):
-        samples, bbox3d = self.sample_with_fixed_number(calib_, plane_)
+        samples, bbox3d = self.sample_bbox3d(calib_, plane_)
 
         # 放置于地面，第一次筛除
         bbox3d_, flag1 = self.sample_put_on_plane(bbox3d, ground)
@@ -237,8 +269,9 @@ class Sample:
         self.bbox2d = sample['bbox2d']
         self.name = sample['name']
 
-        self.image = self.get_image()
-        self.depth = self.get_depth()
+        self.flipped = sample.get('flipped', False)
+        self.image = self.get_image(flip=self.flipped)
+        self.depth = self.get_depth(flip=self.flipped)
 
         self.occlusion_ = 0  # 需要在最终图像中求
         self.image_, self.depth_, self.bbox2d_ = self.transform()
@@ -246,15 +279,21 @@ class Sample:
     def __repr__(self):
         return f"Sample(name={self.name})"
 
-    def get_image(self):
+    def get_image(self, flip=False):
         image_file = self.database.image_path / (self.name + ".png")
         assert image_file.exists()
-        return cv2.imread(str(image_file))
+        image = cv2.imread(str(image_file))
+        if flip:
+            image = cv2.flip(image, 1)
+        return image
 
-    def get_depth(self):
+    def get_depth(self, flip=False):
         depth_file = self.database.depth_path / (self.name + ".png")
         assert depth_file.exists()
-        return cv2.imread(str(depth_file), cv2.IMREAD_UNCHANGED) / 256.0
+        depth = cv2.imread(str(depth_file), cv2.IMREAD_UNCHANGED) / 256.0
+        if flip:
+            depth = cv2.flip(depth, 1)
+        return depth
 
     def get_points(self):
         assert self.depth.shape[:2] == self.image.shape[:2]
@@ -279,7 +318,7 @@ class Sample:
         return cord, rgb
 
     @staticmethod
-    def get_3d_center_in_2d(xyz, calib):    # kitti 的 pos 是底部中心, xyz 需要为实际中心
+    def get_3d_center_in_2d(xyz, calib):  # kitti 的 pos 是底部中心, xyz 需要为实际中心
         xyz = xyz.reshape(1, -1)[:, :3]
         uv, _ = calib.rect_to_img(xyz)
         uv = np.round(uv).astype(int).reshape(2)
@@ -290,8 +329,8 @@ class Sample:
         image, depth, calib, label = self.image, self.depth, self.calib, self.label
         calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
 
-        center = self.get_3d_center_in_2d(label.pos + [0, -label.h / 2, 0], self.calib)
-        center_ = self.get_3d_center_in_2d(bbox3d_[:3] +  [0, -bbox3d_[4] / 2, 0], calib_)
+        center = self.get_3d_center_in_2d(label.pos + [0, -label.h / 2, 0], calib)
+        center_ = self.get_3d_center_in_2d(bbox3d_[:3] + [0, -bbox3d_[4] / 2, 0], calib_)
 
         dry = bbox3d_[6] - label.ry  # ry_ - ry
         h, w = depth.shape
@@ -359,6 +398,7 @@ class Sample:
 
 from pathlib import Path
 import time
+
 if __name__ == '__main__':
     test_dir = Path("/mnt/e/DataSet/kitti/kitti_inst_database/test")
     np.random.seed(0)
