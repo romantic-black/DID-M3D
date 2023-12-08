@@ -34,7 +34,7 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
             # score *= dets[i, j, -1]
             # score = dets[i, j, -1] if dets[i, j, -1] < score else score
             # score = score
-            # score = dets[i, j, -1]
+            score = dets[i, j, -1]      # score = pred
 
             # heading angle decoding
             alpha = get_heading_angle(dets[i, j, 6:30])
@@ -112,7 +112,7 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
     ys3d = ys.view(batch, K, 1) + offset_3d[:, :, 1:2]
 
     cls_ids = cls_ids.view(batch, K, 1).float()
-    scores = scores.view(batch, K, 1)       # 没有融合深度信息
+    scores = scores.view(batch, K, 1)
 
     # check shape
     xs2d = xs2d.view(batch, K, 1)
