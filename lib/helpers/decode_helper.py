@@ -95,7 +95,7 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50, use_pred=False):
         raise NotImplementedError("%s confidence aggreation is not supported" % conf_mode)
 
     if use_pred:
-        merge_conf = outputs['pred'].view(batch, K, 1)
+        merge_conf = outputs['pred'].view(batch, K, 2)[:, :, 1].unsqueeze(2)
 
     size_3d = outputs['size_3d'].view(batch, K, -1)
     offset_3d = outputs['offset_3d'].view(batch, K, -1)
