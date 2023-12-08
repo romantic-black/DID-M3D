@@ -1,7 +1,7 @@
 import unittest
 import torch
 import numpy as np
-from lib.losses.loss_function import get_alpha, xyz_from_rect_to_lidar
+from lib.losses.loss_function import get_alpha, xyz_from_rect_to_lidar, rect2lidar as rect2lidar_torch
 from tools.box_util import rect2lidar, rect2lidar_no_calib, xyz_from_rect_to_lidar_np
 from tools.dataset_util import Dataset
 from aug.iou3d_nms.iou3d_nms_utils import boxes_aligned_iou3d_gpu
@@ -41,6 +41,62 @@ class TestLossFunction(unittest.TestCase):
 
             print(iou3d_1.cpu().numpy(), iou3d_2.cpu().numpy())
             self.assertTrue(np.allclose(iou3d_1.cpu().numpy(), iou3d_2.cpu().numpy(), atol=1e-3))
+
+    def test_get_bbox3d_lidar_same(self):
+        dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
+        for idx in range(20):
+            calib = dataset.get_calib(idx)
+            bbox3d_gt, _, _ = dataset.get_bbox(idx)
+            bbox3d_dt, _, _ = dataset.get_bbox(idx)
+            bbox3d_dt[:, :3] += np.random.randn(bbox3d_dt.shape[0], 3)
+
+            p2 = calib.P2
+            inv_r0 = np.linalg.inv(calib.R0)
+            c2v = calib.C2V
+
+            bbox3d_dt = bbox3d_dt.astype(np.float32)
+            bbox3d_gt = bbox3d_gt.astype(np.float32)
+
+            bbox3d_gt_1 = rect2lidar(bbox3d_gt, calib)
+            bbox3d_gt_2 = rect2lidar_no_calib(bbox3d_gt, inv_r0, c2v)
+
+            iou3d_1 = boxes_aligned_iou3d_gpu(torch.from_numpy(bbox3d_gt_1).cuda(), torch.from_numpy(bbox3d_gt_2).cuda())
+            iou3d_1 = iou3d_1.cpu().numpy()
+            print(iou3d_1)
+
+            self.assertTrue(np.allclose(iou3d_1, np.ones_like(iou3d_1), atol=1e-3))
+
+    def test_get_bbox3d_lidar_torch(self):
+        dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
+        for idx in range(20):
+            calib = dataset.get_calib(idx)
+            bbox3d_gt, _, _ = dataset.get_bbox(idx)
+            bbox3d_dt, _, _ = dataset.get_bbox(idx)
+            bbox3d_dt[:, :3] += np.random.randn(bbox3d_dt.shape[0], 3)
+
+            p2 = calib.P2
+            inv_r0 = np.linalg.inv(calib.R0)
+            c2v = calib.C2V
+
+            bbox3d_dt = bbox3d_dt.astype(np.float32)
+            bbox3d_gt = bbox3d_gt.astype(np.float32)
+
+            bbox3d_gt_1 = rect2lidar(bbox3d_gt, calib)
+
+            bbox3d_gt_torch = torch.from_numpy(bbox3d_gt).cuda()
+            inv_r0 = torch.from_numpy(inv_r0).cuda()
+            # [3,3] to [n, 3,3]
+            inv_r0 = inv_r0.unsqueeze(dim=0).repeat(bbox3d_gt_torch.shape[0], 1, 1)
+            c2v = torch.from_numpy(c2v).cuda()
+            c2v = c2v.unsqueeze(dim=0).repeat(bbox3d_gt_torch.shape[0], 1, 1)
+            bbox3d_gt_torch_1 = rect2lidar_torch(bbox3d_gt_torch, inv_r0, c2v)
+
+            iou3d_1 = boxes_aligned_iou3d_gpu(torch.from_numpy(bbox3d_gt_1).cuda(),
+                                              bbox3d_gt_torch_1)
+            iou3d_1 = iou3d_1.cpu().numpy()
+            print(iou3d_1)
+
+            self.assertTrue(np.allclose(iou3d_1, np.ones_like(iou3d_1), atol=1e-1))
 
     def test_xyz_from_rect_to_lidar(self):
         dataset = Dataset("train", r"/mnt/e/DataSet/kitti")

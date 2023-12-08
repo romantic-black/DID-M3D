@@ -8,7 +8,7 @@ import pdb
 from lib.helpers.save_helper import get_checkpoint_state
 from lib.helpers.save_helper import save_checkpoint
 from lib.helpers.save_helper import load_checkpoint
-from lib.losses.loss_function import DIDLoss, Hierarchical_Task_Learning
+from lib.losses.loss_function import DIDLoss, Hierarchical_Task_Learning, IouLoss
 from lib.helpers.decode_helper import extract_dets_from_outputs
 from lib.helpers.decode_helper import decode_detections
 
@@ -47,6 +47,94 @@ class Trainer(object):
             self.lr_scheduler.last_epoch = self.epoch - 1
 
         self.model = torch.nn.DataParallel(model).to(self.device)
+
+    def train_pred(self):
+        start_epoch = 0
+        self.epoch = 0
+        self.lr_scheduler.last_epoch = 0
+        for epoch in range(start_epoch, self.cfg_train['max_epoch']):
+            self.logger.info('------ TRAIN EPOCH %03d ------' % (epoch + 1))
+            if self.warmup_lr_scheduler is not None and epoch < 5:
+                self.logger.info('Learning Rate: %f' % self.warmup_lr_scheduler.get_lr()[0])
+            else:
+                self.logger.info('Learning Rate: %f' % self.lr_scheduler.get_lr()[0])
+            ei_loss = self.train_pred_one_epoch()
+            self.epoch += 1
+
+            # update learning rate
+            if self.warmup_lr_scheduler is not None and epoch < 5:
+                self.warmup_lr_scheduler.step()
+            else:
+                self.lr_scheduler.step()
+
+            if ((self.epoch % self.cfg_train['eval_frequency']) == 0 and \
+                    self.epoch >= self.cfg_train['eval_start']):
+                self.logger.info('------ EVAL EPOCH %03d ------' % (self.epoch))
+                self.eval_one_epoch(is_pred=True)
+
+            if ((self.epoch % self.cfg_train['save_frequency']) == 0
+                    and self.epoch >= self.cfg_train['eval_start']):
+                os.makedirs(self.cfg_train['log_dir'] + '/checkpoints', exist_ok=True)
+                ckpt_name = os.path.join(self.cfg_train['log_dir'] + '/checkpoints', 'checkpoint_epoch_%d' % self.epoch)
+                save_checkpoint(get_checkpoint_state(self.model, self.optimizer, self.epoch), ckpt_name, self.logger)
+
+        return None
+
+    def train_pred_one_epoch(self):
+        self.model.train()
+
+        disp_dict = {}
+        stat_dict = {}
+        for batch_idx, (inputs, calibs, coord_ranges, targets, info) in enumerate(self.train_loader):
+            if type(inputs) != dict:
+                inputs = inputs.to(self.device)
+            else:
+                for key in inputs.keys(): inputs[key] = inputs[key].to(self.device)
+            calibs = calibs.to(self.device)
+            coord_ranges = coord_ranges.to(self.device)
+            for key in targets.keys(): targets[key] = targets[key].to(self.device)
+            # train one batch
+            self.optimizer.zero_grad()
+            criterion = IouLoss(alpha=self.cfg_train['alpha'], gamma=self.cfg_train['gamma'], device=self.device)
+            outputs = self.model(inputs, coord_ranges, calibs, targets)
+
+            _, loss_terms = criterion(outputs, targets)
+            total_loss = loss_terms['iou_loss']
+
+            total_loss.backward()
+            self.optimizer.step()
+
+            trained_batch = batch_idx + 1
+
+            for key in loss_terms.keys():
+                if key not in stat_dict.keys():
+                    stat_dict[key] = 0
+
+                if isinstance(loss_terms[key], int):
+                    stat_dict[key] += (loss_terms[key])
+                else:
+                    stat_dict[key] += (loss_terms[key]).detach()
+            for key in loss_terms.keys():
+                if key not in disp_dict.keys():
+                    disp_dict[key] = 0
+                # disp_dict[key] += loss_terms[key]
+                if isinstance(loss_terms[key], int):
+                    disp_dict[key] += (loss_terms[key])
+                else:
+                    disp_dict[key] += (loss_terms[key]).detach()
+            # display statistics in terminal
+            if trained_batch % self.cfg_train['disp_frequency'] == 0:
+                log_str = 'BATCH[%04d/%04d]' % (trained_batch, len(self.train_loader))
+                for key in sorted(disp_dict.keys()):
+                    disp_dict[key] = disp_dict[key] / self.cfg_train['disp_frequency']
+                    log_str += ' %s:%.4f,' % (key, disp_dict[key])
+                    disp_dict[key] = 0  # reset statistics
+                self.logger.info(log_str)
+
+        for key in stat_dict.keys():
+            stat_dict[key] /= trained_batch
+
+        return stat_dict
 
     def train(self):
         start_epoch = self.epoch
@@ -184,7 +272,7 @@ class Trainer(object):
 
         return stat_dict
 
-    def eval_one_epoch(self):
+    def eval_one_epoch(self, is_pred=False):
         self.model.eval()
 
         results = {}
@@ -203,7 +291,7 @@ class Trainer(object):
                 # the outputs of centernet
                 outputs = self.model(inputs, coord_ranges, calibs, K=50, mode='val')
 
-                dets = extract_dets_from_outputs(outputs, K=50)
+                dets = extract_dets_from_outputs(outputs, K=50, use_pred=is_pred)
                 dets = dets.detach().cpu().numpy()
 
                 # get corresponding calibs & transform tensor to numpy

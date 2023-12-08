@@ -16,7 +16,8 @@ def rect2lidar(bbox3d, calib):
 
 def rect2lidar_no_calib(bbox3d, inv_r0, c2v):    # 不是准确的坐标转换，只是为计算 iou
     xyz, lhw, ry = bbox3d[:, 0:3], bbox3d[:, 3:6], bbox3d[:, 6:]
-    xyz = xyz_from_rect_to_lidar_np(c2v, inv_r0, xyz)
+    xyz = xyz_from_rect_to_lidar_np(xyz, inv_r0, c2v)
+    xyz[:, 2] += lhw[:, 1] / 2
     lwh = lhw[:, [0, 2, 1]]
     rz = -ry - np.pi / 2
     return np.concatenate([xyz, lwh, rz], axis=1)
@@ -25,9 +26,9 @@ def rect2lidar_no_calib(bbox3d, inv_r0, c2v):    # 不是准确的坐标转换�
 def xyz_from_rect_to_lidar_np(xyz, inv_r0, c2v):
     xyz = xyz.copy()
     for i in range(xyz.shape[0]):
-        tmp = (inv_r0[i] @ xyz[i].reshape(-1, 1)).T
+        tmp = (inv_r0 @ xyz[i].reshape(-1, 1)).T
         tmp = np.concatenate([tmp, np.ones((1, 1))], axis=1)
-        xyz[i] = tmp @ c2v[i].T
+        xyz[i] = tmp @ c2v.T
     return xyz
 
 

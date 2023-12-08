@@ -197,6 +197,7 @@ class KITTI(data.Dataset):
             height2d = np.zeros((self.max_objs, 1), dtype=np.float32)
             cls_ids = np.zeros((self.max_objs), dtype=np.int64)
             indices = np.zeros((self.max_objs), dtype=np.int64)
+            bbox3d = np.zeros((self.max_objs, 7), dtype=np.float32)
             bbox3d_lidar = np.zeros((self.max_objs, 7), dtype=np.float32)
             uv = np.zeros((self.max_objs, 2), dtype=np.float32)
             # if torch.__version__ == '1.10.0+cu113':
@@ -281,9 +282,9 @@ class KITTI(data.Dataset):
                 # objects[i].trucation <=0.5 and objects[i].occlusion<=2 and (objects[i].box2d[3]-objects[i].box2d[1])>=25:
                 if objects[i].trucation <= 0.5 and objects[i].occlusion <= 2:
                     mask_2d[i] = 1
-                bbox3d = np.array(
-                    [[*objects[i].pos, objects[i].l, objects[i].h, objects[i].w, objects[i].ry]])  # [1, 7]
-                bbox3d_lidar[i] = rect2lidar(bbox3d, calib).reshape(-1)  # [7]
+                bbox3d[i] = np.array(
+                    [[*objects[i].pos, objects[i].l, objects[i].h, objects[i].w, objects[i].ry]]).reshape(-1)
+                bbox3d_lidar[i] = rect2lidar(bbox3d[i].reshape(1,-1), calib).reshape(-1)  # [7]
 
                 p2[i] = calib.P2
                 inv_r0[i] = np.linalg.inv(calib.R0)
@@ -313,6 +314,7 @@ class KITTI(data.Dataset):
                        'cls_ids': cls_ids,
                        'mask_2d': mask_2d,
                        'bbox3d_lidar': bbox3d_lidar,
+                       'bbox3d': bbox3d,
                        'uv': uv,
                        'p2': p2,
                        'inv_r0': inv_r0,

@@ -203,12 +203,14 @@ def get_bbox3d(uv, depth, size3d, alpha, p2):
     fu, fv, cu, cv, tx, ty = p2[:, 0, 0], p2[:, 1, 1], p2[:, 0, 2], p2[:, 1, 2], p2[:, 0, 3], p2[:, 1, 3]
     fu, fv, cu, cv, tx, ty = fu.unsqueeze(1), fv.unsqueeze(1), cu.unsqueeze(1), cv.unsqueeze(1), tx.unsqueeze(
         1), ty.unsqueeze(1)
+    tx = tx / -fu
+    ty = ty / -fv
     u, v = uv[:, 0:1], uv[:, 1:]
     x = (u - cu) * depth / fu + tx
     y = (v - cv) * depth / fv + ty
     xyz = torch.stack([x, y, depth], dim=1).squeeze(2)
     lhw = size3d[:, [2, 0, 1]]
-    ry = alpha2ry(alpha, x, cu, fu)
+    ry = alpha2ry(alpha, u, cu, fu)
     bbox3d = torch.cat([xyz, lhw, ry], dim=1)
     return bbox3d
 
@@ -216,7 +218,8 @@ def get_bbox3d(uv, depth, size3d, alpha, p2):
 def rect2lidar(bbox3d, inv_r0, c2v):
     xyz, lhw, ry = bbox3d[:, 0:3], bbox3d[:, 3:6], bbox3d[:, 6:]
     xyz = xyz_from_rect_to_lidar(xyz, inv_r0, c2v)
-    lwh = lhw[:, [2, 0, 1]]
+    # xyz[:, 2] += lhw[:, 1] / 2
+    lwh = lhw[:, [0, 2, 1]]
     rz = -ry - torch.pi / 2
     return torch.cat([xyz, lwh, rz], dim=1)
 
@@ -275,9 +278,9 @@ def compute_heading_loss(input, mask, target_cls, target_reg):
 
 
 class IouLoss(nn.Module):
-    def __init__(self, alpha, gamma):
+    def __init__(self, alpha, gamma, device):
         super().__init__()
-        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma)
+        self.focal_loss = FocalLoss(alpha=alpha, gamma=gamma, device=device)
         self.state = {}
 
     def forward(self, preds, targets):
@@ -308,17 +311,18 @@ class IouLoss(nn.Module):
         pred_input = input['pred'][input['train_tag']]
         alpha = get_alpha(heading_input)
         size3d = size3d_input + mean_size_target
+        bbox3d_target = extract_target_from_tensor(target['bbox3d'], target[mask_type])
         bbox3d_lidar_target = extract_target_from_tensor(target['bbox3d_lidar'], target[mask_type])
         uv_target = extract_target_from_tensor(target['uv'], target[mask_type])
         p2_target = extract_target_from_tensor(target['p2'], target[mask_type])
         inv_r0_target = extract_target_from_tensor(target['inv_r0'], target[mask_type])
         c2v_target = extract_target_from_tensor(target['c2v'], target[mask_type])
 
-        bbox3d_lidar = get_bbox3d(uv_target, merge_depth, size3d, alpha, p2_target)
-        bbox3d_lidar = rect2lidar(bbox3d_lidar, inv_r0_target, c2v_target)
+        bbox3d = get_bbox3d(uv_target, merge_depth, size3d, alpha, p2_target)
+        bbox3d_lidar = rect2lidar(bbox3d, inv_r0_target, c2v_target)
         iou = boxes_aligned_iou3d_gpu(bbox3d_lidar, bbox3d_lidar_target)
         threshold = 0.7
-        in_range = (iou > threshold).float()
+        in_range = (iou > threshold).long()
         iou_loss = self.focal_loss(pred_input, in_range)
 
         if iou_loss != iou_loss:
@@ -328,9 +332,9 @@ class IouLoss(nn.Module):
         return iou_loss
 
 class FocalLoss(nn.Module):
-    def __init__(self, alpha, gamma, reduction='mean'):
+    def __init__(self, alpha, gamma, device, reduction='mean'):
         super(FocalLoss, self).__init__()
-        self.alpha = torch.tensor(alpha)
+        self.alpha = torch.tensor(alpha).to(device)
         self.gamma = gamma
         self.reduction = reduction
 
@@ -340,7 +344,7 @@ class FocalLoss(nn.Module):
             pred: [M, 2]
             target: [M, 1]
         """
-        alpha = self.alpha[target]
+        alpha = self.alpha[target.view(-1)]
         log_softmax = torch.log_softmax(pred, dim=1)
         logpt = torch.gather(log_softmax, dim=1, index=target.view(-1, 1))
         logpt = logpt.view(-1)
