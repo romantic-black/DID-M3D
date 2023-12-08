@@ -74,9 +74,9 @@ class Trainer(object):
 
             if ((self.epoch % self.cfg_train['save_frequency']) == 0
                     and self.epoch >= self.cfg_train['eval_start']):
-                save_checkpoint(get_checkpoint_state(self.model, self.optimizer, self.epoch), ckpt_name, self.logger)
                 os.makedirs(self.cfg_train['log_dir'] + '/checkpoints', exist_ok=True)
                 ckpt_name = os.path.join(self.cfg_train['log_dir'] + '/checkpoints', 'checkpoint_epoch_%d' % self.epoch)
+                save_checkpoint(get_checkpoint_state(self.model, self.optimizer, self.epoch), ckpt_name, self.logger)
 
         return None
 
