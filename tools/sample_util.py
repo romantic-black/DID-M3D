@@ -78,7 +78,7 @@ class SampleDatabase:
                  sample_num=30,
                  x_range=(-15., 15.),
                  z_range=(25., 65.),
-                 random_flip=1.):
+                 random_flip=0):
         self.database_path = pathlib.Path(database_path)
         assert self.database_path.exists()
         self.image_path = self.database_path / "image"
@@ -208,7 +208,7 @@ class SampleDatabase:
         return bbox3d, flag
 
     def get_samples(self, ground, non_ground, calib_, plane_):
-        samples, bbox3d = self.sample_bbox3d(calib_, plane_)
+        samples, bbox3d = self.sample_bbox3d(calib_, plane_, random_flip=self.random_flip)
 
         # 放置于地面，第一次筛除
         bbox3d_, flag1 = self.sample_put_on_plane(bbox3d, ground)
