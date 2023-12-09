@@ -78,7 +78,7 @@ class SampleDatabase:
                  sample_num=30,
                  x_range=(-15., 15.),
                  z_range=(25., 65.),
-                 random_flip=0):
+                 random_flip=0.5):
         self.database_path = pathlib.Path(database_path)
         assert self.database_path.exists()
         self.image_path = self.database_path / "image"
@@ -122,7 +122,7 @@ class SampleDatabase:
         if ry < -np.pi: ry += 2 * np.pi
         sample['label'].ry = ry
         sample['label'].pos[0] *= -1
-        sample['alpha'] = calib.ry2alpha(ry, w - (u_max + u_min) / 2)
+        sample['label'].alpha = calib.ry2alpha(ry, w - (u_max + u_min) / 2)
         sample['plane'][0] *= -1
         sample['flipped'] = True
         return sample
@@ -166,7 +166,7 @@ class SampleDatabase:
         self.indices = indices
         return samples, xyz_
 
-    def sample_with_fixed_idx(self, xyz_, calib_, index):
+    def fixed_sample(self, xyz_, calib_, index):
         n = xyz_.shape[0]
         samples = [self.database[index] for i in range(n)]
         alpha = np.array([[s['label'].alpha] for s in samples])
