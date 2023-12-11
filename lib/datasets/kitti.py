@@ -105,11 +105,12 @@ class KITTI(data.Dataset):
         image, depth = dataset.get_image_with_depth(idx, use_penet=True)
         calib = dataset.get_calib(idx)
         ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
+        grid = dataset.get_grid(idx)
         plane = dataset.get_plane(idx)
         _, _, labels = dataset.get_bbox(idx, chosen_cls=["Car", 'Van', 'Truck', 'DontCare'])
 
         if use_aug:
-            samples = database.get_samples(ground, non_ground, calib, plane)
+            samples = database.get_samples(ground, non_ground, calib, plane, grid)
             image, depth, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
             labels = merge_labels(labels, samples, calib, image.shape)
 
