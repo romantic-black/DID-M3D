@@ -38,7 +38,7 @@ def area2occlusion(area):
         return 0
     elif area < 0.4:
         return 1
-    elif area < 0.7:
+    elif area < 0.8:
         return 2
     else:
         return 3
@@ -514,11 +514,16 @@ if __name__ == '__main__':
         ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
         plane_ = dataset.get_plane(idx)
         grid = dataset.get_grid(idx)
+        _, _, labels = dataset.get_bbox(idx, chosen_cls=["Car", 'Van', 'Truck', 'DontCare'])
 
         time1 = time.time()
         samples = database.get_samples(ground, non_ground, calib_, plane_, grid=grid)
         image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
+        labels = merge_labels(labels, samples, calib_, image.shape)
         time2 = time.time()
+
+        for label in labels:
+            cv2.putText(image_, str(round(label.area,2)), (int(label.box2d[0]), int(label.box2d[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
         dt += time2 - time1
