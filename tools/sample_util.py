@@ -165,7 +165,7 @@ class SampleDatabase:
         return samples, bbox3d_
 
     def sample_xyz(self, plane_=None):
-        sample_num= int(self.sample_num)
+        sample_num = int(self.sample_num)
         low_x, high_x = self.x_range
         low_z, high_z = self.z_range
 
@@ -332,6 +332,7 @@ class Sample:
         self.depth = self.get_depth(flip=self.flipped)
 
         self.occlusion_ = 0  # 需要在最终图像中求
+        self.trucation_ = 0
         self.image_, self.depth_, self.bbox2d_ = self.transform()
 
     def __repr__(self):
@@ -418,14 +419,40 @@ class Sample:
 
         return image_, depth_, bbox2d_.tolist()
 
+    @staticmethod
+    def truncate(image_, depth_, bbox2d_, image_shape):
+        h, w = image_shape[:2]
+        u_min, v_min, u_max, v_max = bbox2d_
+        area = (v_max - v_min) * (u_max - u_min)
+        if u_min < 0:
+            image_ = image_[:, -u_min:]
+            depth_ = depth_[:, -u_min:]
+            bbox2d_[0] = 0
+        if v_min < 0:
+            image_ = image_[-v_min:, :]
+            depth_ = depth_[-v_min:, :]
+            bbox2d_[1] = 0
+        if u_max > w:
+            image_ = image_[:, :w - u_max]
+            depth_ = depth_[:, :w - u_max]
+            bbox2d_[2] = w
+        if v_max > h:
+            image_ = image_[:h - v_max, :]
+            depth_ = depth_[:h - v_max, :]
+            bbox2d_[3] = h
+        area_ = (bbox2d_[3] - bbox2d_[1]) * (bbox2d_[2] - bbox2d_[0])
+        truncate_rate = (area - area_) / area
+        return image_, depth_, bbox2d_, truncate_rate
+
     def cover(self, image, depth, mask, area_threshold=0.5):
         assert image.shape[:2] == depth.shape
         blank_rgb, blank_d, mask = image.copy(), depth.copy(), mask.copy()
         image_, depth_, bbox2d_ = self.image_, self.depth_, self.bbox2d_
+        # 截取图像外的样本
+        image_, depth_, bbox2d_, self.trucation_ = self.truncate(image_, depth_, bbox2d_, image.shape)
 
         u_min, v_min, u_max, v_max = bbox2d_
-        # 避免 bbox2d_ 在图像外
-        if u_min < 0 or v_min < 0 or u_max > image.shape[1] or v_max > image.shape[0]:
+        if u_min >= u_max or v_min >= v_max:    # 可能发生
             return blank_rgb, blank_d, mask, False
 
         d_in_bbox2d = blank_d[v_min: v_max, u_min: u_max]
@@ -444,7 +471,7 @@ class Sample:
     def to_label(self):
         label = self.label
         cls = label.cls_type
-        trucation = 0
+        trucation = self.trucation_
         score = 0
         occlusion = 0
         x_, y_, z_, l_, h_, w_, ry_ = self.bbox3d_
