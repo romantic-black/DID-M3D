@@ -127,9 +127,10 @@ class SampleDatabase:
         sample['flipped'] = True
         return sample
 
-    def sample_bbox3d(self, calib_, plane_, random_flip=0.):
-        samples, xyz_ = self.sample_xyz(plane_)
+    def xyz_to_bbox3d(self, samples, xyz_, calib_, random_flip=0.):
         sample_num = len(samples)
+        if sample_num == 0:
+            return [], np.zeros((0, 7))
 
         for i, sample in enumerate(samples):
             if np.random.rand() < random_flip:  # 随机翻转
@@ -149,9 +150,6 @@ class SampleDatabase:
         sample_num, pointer, indices = int(self.sample_num), self.pointer, self.indices
         low_x, high_x = self.x_range
         low_z, high_z = self.z_range
-        if pointer >= len(database):
-            indices = np.random.permutation(len(database))
-            pointer = 0
 
         samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
         sample_num = len(samples)
@@ -164,6 +162,48 @@ class SampleDatabase:
         pointer += sample_num
         self.pointer = pointer
         self.indices = indices
+        return samples, xyz_
+
+    def sample_from_grid(self, grid, grid_size=1.):
+        pos = np.array([[key[0], key[1]] for key in grid.keys() if isinstance(key, tuple)])
+        dis = np.linalg.norm(pos, axis=1)
+        valid = dis < min(np.max(dis) - 10, 65)  # 最大距离附近的点不可信，超过 65m 的点不可信
+        pos2d = pos[valid]
+        if pos2d.shape[0] == 0:
+            return [], np.zeros((0, 7))
+
+        z = pos2d[:, 1]
+        segments = {
+            "a": (65 > z) & (z >= 40),  # 0.466
+            "b": (40 > z) & (z >= 25),  # 0.279
+            "c": (25 > z) & (z >= 10),  # 0.255
+            "d": (10 > z) & (z >= 0)
+        }
+        grid_sums = {key: np.sum(value) for key, value in segments.items()}
+        max_label = max(grid_sums, key=grid_sums.get)
+        valid, grid_sum = segments[max_label], grid_sums[max_label]
+        pos2d = pos2d[valid]
+
+        if max_label == "d":
+            return [], np.zeros((0, 3))
+
+        sample_num = grid_sum // 10
+        pointer, indices, database = self.pointer, self.indices, self.database
+        if pointer >= len(database):
+            indices = np.random.permutation(len(database))
+            pointer = 0
+        samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
+        sample_num = len(samples)
+
+        indices = np.random.choice(pos2d.shape[0], sample_num, replace=False)
+        offset = np.random.uniform(-grid_size / 2, grid_size / 2, size=(sample_num, 2))
+        pos2d = pos2d[indices]
+
+        plane_ = [grid[(pos2d[i][0], pos2d[i][1])]["plane"] for i in range(sample_num)]
+        x_, z_ = (pos2d + offset).T
+        y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_[i]) for i in range(sample_num)])
+
+        xyz_ = np.vstack((x_, y_, z_)).T
         return samples, xyz_
 
     def fixed_sample(self, xyz_, calib_, index):
@@ -207,13 +247,22 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_):
-        samples, bbox3d = self.sample_bbox3d(calib_, plane_, random_flip=self.random_flip)
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None):
+        if grid is None:
+            samples, xyz_ = self.sample_xyz(plane_)
+            samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
 
-        # 放置于地面，第一次筛除
-        bbox3d_, flag1 = self.sample_put_on_plane(bbox3d, ground)
-        if flag1.sum() == 0:
-            return []
+            # 放置于地面，第一次筛除
+            bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground)
+            if flag1.sum() == 0:
+                return []
+        else:
+            samples, xyz_ = self.sample_from_grid(grid)
+            samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
+            # no need to put on ground
+            flag1 = np.ones(xyz_.shape[0], dtype=bool)
+            if flag1.sum() == 0:
+                return []
 
         # api 要求 bbox3d 为 lidar 坐标系
         bbox3d_in_lidar = rect2lidar(bbox3d_[flag1], calib_)
@@ -234,7 +283,7 @@ class SampleDatabase:
             return []
 
         # 合并筛除结果
-        valid = np.arange(bbox3d.shape[0])[flag1][flag2][flag3]
+        valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
         res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
         return res
 
@@ -387,7 +436,9 @@ class Sample:
         alpha = self.get_alpha(self.bbox3d_[:3], ry_, self.calib_)
         u_min, v_min, u_max, v_max = self.bbox2d_
         line = f"{cls} {trucation} {occlusion} {alpha} {u_min} {v_min} {u_max} {v_max} {h_} {w_} {l_} {x_} {y_} {z_} {ry_} {score}"
-        return Object3d(line)
+        res = Object3d(line)
+        res.is_fake = True
+        return res
 
     @staticmethod
     def get_alpha(xyz, ry, calib):
@@ -413,9 +464,10 @@ if __name__ == '__main__':
         image, depth = dataset.get_image_with_depth(idx, use_penet=True)
         ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
         plane_ = dataset.get_plane(idx)
+        grid = dataset.get_grid(idx)
 
         time1 = time.time()
-        samples = database.get_samples(ground, non_ground, calib_, plane_)
+        samples = database.get_samples(ground, non_ground, calib_, plane_, grid=grid)
         image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
         time2 = time.time()
         mean_samples += len(samples)
