@@ -24,7 +24,7 @@ def merge_labels(labels, samples, calib_, image_shape):
         v_max = round(min(np.max(uv[:, 1]), image_shape[0]))
 
         canvas[v_min: v_max, u_min: u_max] = i
-        label.area = (v_max - v_min) * (u_max - u_min)
+        label.area = (v_max - v_min) * (u_max - u_min) + 1e-6
     for i, label in enumerate(labels):
         area = np.sum(canvas == i)
         label.area = 1 - area / label.area
@@ -464,6 +464,7 @@ class Sample:
 
 from pathlib import Path
 import time
+import datetime
 
 if __name__ == '__main__':
     test_dir = Path("/mnt/e/DataSet/kitti/kitti_inst_database/test")
@@ -488,6 +489,5 @@ if __name__ == '__main__':
         mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
         dt += time2 - time1
-
     print("time: ", dt / n)
     print(mean_samples / n)
