@@ -86,6 +86,11 @@ class SampleDatabase:
         # self.mask_path = self.database_path / "mask"
         with open(self.database_path / "kitti_car_database.pkl", "rb") as f:
             database = pickle.load(f)
+        with open(self.database_path / "sample_image_database.pkl", "rb") as f:
+            self.sample_image_database = pickle.load(f)
+        with open(self.database_path / "sample_depth_database.pkl", "rb") as f:
+            self.sample_depth_database = pickle.load(f)
+
         if idx_list is not None:
             [database.pop(key) for key in list(database.keys()) if key.split("_")[0] not in idx_list]
         self.database = list(database.values())
@@ -127,6 +132,20 @@ class SampleDatabase:
         sample['flipped'] = True
         return sample
 
+    def samples_from_database(self, num):
+        pointer, indices, database = self.pointer, self.indices, self.database
+        if pointer >= len(database):
+            indices = np.random.permutation(len(database))
+            pointer = 0
+        samples = [database[idx] for idx in indices[pointer: pointer + num]]
+        if len(samples) < num:
+            samples += [database[idx] for idx in indices[: num - len(samples)]]
+
+        pointer += len(samples)
+        self.pointer = pointer
+        self.indices = indices
+        return samples
+
     def xyz_to_bbox3d(self, samples, xyz_, calib_, random_flip=0.):
         sample_num = len(samples)
         if sample_num == 0:
@@ -146,22 +165,17 @@ class SampleDatabase:
         return samples, bbox3d_
 
     def sample_xyz(self, plane_=None):
-        database = self.database
-        sample_num, pointer, indices = int(self.sample_num), self.pointer, self.indices
+        sample_num= int(self.sample_num)
         low_x, high_x = self.x_range
         low_z, high_z = self.z_range
 
-        samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
-        sample_num = len(samples)
+        samples = self.samples_from_database(sample_num)
 
         x_ = np.random.uniform(low=low_x, high=high_x, size=(sample_num, 1))
         z_ = np.random.uniform(low=low_z, high=high_z, size=(sample_num, 1))
         y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_) for i in range(sample_num)])
         xyz_ = np.concatenate([x_, y_, z_], axis=1)
 
-        pointer += sample_num
-        self.pointer = pointer
-        self.indices = indices
         return samples, xyz_
 
     def sample_from_grid(self, grid, grid_size=1.):
@@ -188,12 +202,7 @@ class SampleDatabase:
             return [], np.zeros((0, 3))
 
         sample_num = grid_sum // 10
-        pointer, indices, database = self.pointer, self.indices, self.database
-        if pointer >= len(database):
-            indices = np.random.permutation(len(database))
-            pointer = 0
-        samples = [database[idx] for idx in indices[pointer: pointer + sample_num]]
-        sample_num = len(samples)
+        samples = self.samples_from_database(sample_num)
 
         indices = np.random.choice(pos2d.shape[0], sample_num, replace=False)
         offset = np.random.uniform(-grid_size / 2, grid_size / 2, size=(sample_num, 2))
@@ -329,17 +338,23 @@ class Sample:
         return f"Sample(name={self.name})"
 
     def get_image(self, flip=False):
-        image_file = self.database.image_path / (self.name + ".png")
-        assert image_file.exists()
-        image = cv2.imread(str(image_file))
+        try:
+            image = self.database.sample_image_database[self.name]
+        except KeyError:
+            image_file = self.database.image_path / (self.name + ".png")
+            assert image_file.exists()
+            image = cv2.imread(str(image_file))
         if flip:
             image = cv2.flip(image, 1)
         return image
 
     def get_depth(self, flip=False):
-        depth_file = self.database.depth_path / (self.name + ".png")
-        assert depth_file.exists()
-        depth = cv2.imread(str(depth_file), cv2.IMREAD_UNCHANGED) / 256.0
+        try:
+            depth = self.database.sample_depth_database[self.name]
+        except KeyError:
+            depth_file = self.database.depth_path / (self.name + ".png")
+            assert depth_file.exists()
+            depth = cv2.imread(str(depth_file), cv2.IMREAD_UNCHANGED) / 256.0
         if flip:
             depth = cv2.flip(depth, 1)
         return depth
