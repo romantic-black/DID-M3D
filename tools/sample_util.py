@@ -164,18 +164,21 @@ class SampleDatabase:
 
         return samples, bbox3d_
 
-    def sample_xyz(self, plane_=None):
-        sample_num = int(self.sample_num)
-        low_x, high_x = self.x_range
-        low_z, high_z = self.z_range
-
-        samples = self.samples_from_database(sample_num)
-
-        x_ = np.random.uniform(low=low_x, high=high_x, size=(sample_num, 1))
-        z_ = np.random.uniform(low=low_z, high=high_z, size=(sample_num, 1))
-        y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_) for i in range(sample_num)])
-        xyz_ = np.concatenate([x_, y_, z_], axis=1)
-
+    def sample_xyz(self, plane_=None, samples=None, xyz_=None):
+        if samples is not None and xyz_ is not None:
+            assert len(samples) == xyz_.shape[0]
+        sample_num = int(self.sample_num) if samples is None else len(samples)
+        sample_num = sample_num if xyz_ is None else xyz_.shape[0]
+        if samples is None:
+            samples = self.samples_from_database(sample_num)
+        if xyz_ is None:
+            assert plane_ is not None
+            low_z, high_z = self.z_range
+            low_x, high_x = self.x_range
+            x_ = np.random.uniform(low=low_x, high=high_x, size=(sample_num, 1))
+            z_ = np.random.uniform(low=low_z, high=high_z, size=(sample_num, 1))
+            y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_) for i in range(sample_num)])
+            xyz_ = np.concatenate([x_, y_, z_], axis=1)
         return samples, xyz_
 
     def sample_from_grid(self, grid, grid_size=1.):
@@ -322,6 +325,7 @@ class Sample:
 
         self.label = sample['label']
         self.calib = sample['calib']
+        self.alpha_ = sample['label'].alpha
         self.calib_ = calib
         self.plane = sample['plane']
         self.bbox2d = sample['bbox2d']
@@ -392,7 +396,7 @@ class Sample:
     def transform(self):
         assert self.depth.shape[:2] == self.image.shape[:2]
         image, depth, calib, label = self.image, self.depth, self.calib, self.label
-        calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
+        calib_, bbox3d_, bbox2d, alpha_ = self.calib_, self.bbox3d_, self.bbox2d, self.alpha_
 
         center = self.get_3d_center_in_2d(label.pos + [0, -label.h / 2, 0], calib)
         center_ = self.get_3d_center_in_2d(bbox3d_[:3] + [0, -bbox3d_[4] / 2, 0], calib_)
@@ -401,7 +405,9 @@ class Sample:
         h, w = depth.shape
 
         offset = np.arange(w, dtype=int) - center[0] + bbox2d[0]
-        offset = - np.tan(dry) * offset * label.w / w
+
+        width = abs(np.sin(alpha_) * label.w) + abs(np.cos(alpha_) * label.l)
+        offset = - np.tan(dry) * offset * width / w
 
         depth_ = depth - label.pos[2] + offset.reshape(1, -1) + bbox3d_[2]
         depth_[depth < 1e-2] = 0
