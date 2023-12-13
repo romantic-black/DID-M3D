@@ -115,7 +115,8 @@ class SampleDatabase:
         y /= b
         return y
 
-    def flip_sample(self, sample):
+    @staticmethod
+    def flip_sample( sample):
         sample = sample.copy()
         calib = sample['calib']
         h, w = sample['image_shape']
@@ -181,28 +182,45 @@ class SampleDatabase:
             xyz_ = np.concatenate([x_, y_, z_], axis=1)
         return samples, xyz_
 
-    def sample_from_grid(self, grid, grid_size=1.):
-        pos = np.array([[key[0], key[1]] for key in grid.keys() if isinstance(key, tuple)])
-        dis = np.linalg.norm(pos, axis=1)
-        valid = dis < min(np.max(dis) - 10, 65)  # 最大距离附近的点不可信，超过 65m 的点不可信
-        pos2d = pos[valid]
-        if pos2d.shape[0] == 0:
-            return [], np.zeros((0, 7))
-
-        z = pos2d[:, 1]
+    @staticmethod
+    def get_scene_type(pos):
+        z = pos[:, 1]
         segments = {
-            "a": (65 > z) & (z >= 40),  # 0.466
-            "b": (40 > z) & (z >= 25),  # 0.279
-            "c": (25 > z) & (z >= 10),  # 0.255
-            "d": (10 > z) & (z >= 0)
+            "a": (70 > z) & (z >= 45),  # 3049
+            "b": (45 > z) & (z >= 30),  # 1846
+            "c": (30 > z) & (z >= 15),  # 2057
+            "d": (15 > z) & (z >= 0)    # 529
         }
         grid_sums = {key: np.sum(value) for key, value in segments.items()}
-        max_label = max(grid_sums, key=grid_sums.get)
-        valid, grid_sum = segments[max_label], grid_sums[max_label]
+        scene_type = max(grid_sums, key=grid_sums.get)
+        return scene_type
+
+    def get_valid_grid(self, grid):
+        pos2d = np.array([[key[0], key[1]] for key in grid.keys() if isinstance(key, tuple)])
+        dis = np.linalg.norm(pos2d, axis=1)
+
+        scene_type = self.get_scene_type(pos2d)
+
+        # 删除超过范围的 grid
+        valid = dis < min(np.max(dis) - 10, 65)  # 最大距离附近的点不可信，超过 65m 的点不可信
         pos2d = pos2d[valid]
 
-        if max_label == "d":
-            return [], np.zeros((0, 3))
+        # 选取指定范围的 grid
+        state = {
+            'a': lambda x: (60 > x[:, 1]) & (x[:, 1] >= 40),
+            'b': lambda x: (50 > x[:, 1]) & (x[:, 1] >= 30),
+            'c': lambda x: (40 > x[:, 1]) & (x[:, 1] >= 20),
+            'd': lambda x: np.zeros_like(x[:, 1], dtype=bool)
+        }
+        valid = state[scene_type](pos2d)
+        pos2d = pos2d[valid]
+
+        return pos2d, scene_type
+
+
+    def sample_from_grid(self, grid, grid_size=1.):
+        pos2d, scene_type = self.get_valid_grid(grid)
+        grid_sum = pos2d.shape[0]
 
         sample_num = grid_sum // 10
         samples = self.samples_from_database(sample_num)
@@ -216,7 +234,7 @@ class SampleDatabase:
         y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_[i]) for i in range(sample_num)])
 
         xyz_ = np.vstack((x_, y_, z_)).T
-        return samples, xyz_
+        return samples, xyz_, scene_type
 
     def fixed_sample(self, xyz_, calib_, index):
         n = xyz_.shape[0]
@@ -262,19 +280,17 @@ class SampleDatabase:
     def get_samples(self, ground, non_ground, calib_, plane_, grid=None):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
-            samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
-
-            # 放置于地面，第一次筛除
-            bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground)
-            if flag1.sum() == 0:
-                return []
+            radius = 3
         else:
-            samples, xyz_ = self.sample_from_grid(grid)
-            samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
-            # no need to put on ground
-            flag1 = np.ones(xyz_.shape[0], dtype=bool)
-            if flag1.sum() == 0:
-                return []
+            samples, xyz_, scene_type = self.sample_from_grid(grid)
+            radius = {'a': 4, 'b': 3, 'c': 2, 'd': 1}[scene_type]
+
+        samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
+
+        # 判断样本是否在地面上，第一次筛除
+        bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=radius, min_num=10, max_degree=15)
+        if flag1.sum() == 0:
+            return []
 
         # api 要求 bbox3d 为 lidar 坐标系
         bbox3d_in_lidar = rect2lidar(bbox3d_[flag1], calib_)
