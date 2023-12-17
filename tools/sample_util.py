@@ -2,6 +2,7 @@ import numpy as np
 import open3d as o3d
 import pathlib
 import re
+import random
 import cv2
 import pickle
 from lib.datasets.kitti_utils import Calibration
@@ -116,7 +117,7 @@ class SampleDatabase:
         return y
 
     @staticmethod
-    def flip_sample( sample):
+    def flip_sample(sample):
         sample = sample.copy()
         calib = sample['calib']
         h, w = sample['image_shape']
@@ -189,14 +190,14 @@ class SampleDatabase:
             "a": (70 > z) & (z >= 45),  # 3049
             "b": (45 > z) & (z >= 30),  # 1846
             "c": (30 > z) & (z >= 15),  # 2057
-            "d": (15 > z) & (z >= 0)    # 529
+            "d": (15 > z) & (z >= 0)  # 529
         }
         grid_sums = {key: np.sum(value) for key, value in segments.items()}
         scene_type = max(grid_sums, key=grid_sums.get)
         return scene_type
 
     def get_valid_grid(self, grid):
-        pos2d = np.array([[key[0], key[1]] for key in grid.keys() if isinstance(key, tuple)])
+        pos2d = np.array(list(grid.keys()))
         dis = np.linalg.norm(pos2d, axis=1)
 
         scene_type = self.get_scene_type(pos2d)
@@ -216,7 +217,6 @@ class SampleDatabase:
         pos2d = pos2d[valid]
 
         return pos2d, scene_type
-
 
     def sample_from_grid(self, grid, grid_size=1.):
         pos2d, scene_type = self.get_valid_grid(grid)
@@ -277,18 +277,22 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_, grid=None):
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
             radius = 3
+            ues_plane_filter = True
         else:
             samples, xyz_, scene_type = self.sample_from_grid(grid)
             radius = {'a': 4, 'b': 3, 'c': 2, 'd': 1}[scene_type]
 
         samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
 
+        flag1 = np.ones((bbox3d_.shape[0]), dtype=bool)
         # 判断样本是否在地面上，第一次筛除
-        bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=radius, min_num=10, max_degree=15)
+        if ues_plane_filter:
+            bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=radius, min_num=10, max_degree=15)
+
         if flag1.sum() == 0:
             return []
 
@@ -318,9 +322,10 @@ class SampleDatabase:
     @staticmethod
     def add_samples_to_scene(samples, image, depth, max_num=10, use_edge_blur=False):
         image_, depth_ = image.copy(), depth.copy()
-        flag = np.zeros(len(samples), dtype=bool)
         mask = np.zeros(image.shape[:2], dtype=bool)
-        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)[:max_num]
+        samples = random.sample(samples, np.min([max_num, len(samples)]))
+        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)  # z 降序
+        flag = np.zeros(len(samples), dtype=bool)
         for i, sample in enumerate(samples):
             image_, depth_, mask, flag[i] = sample.cover(image_, depth_, mask)
 
@@ -474,7 +479,7 @@ class Sample:
         image_, depth_, bbox2d_, self.trucation_ = self.truncate(image_, depth_, bbox2d_, image.shape)
 
         u_min, v_min, u_max, v_max = bbox2d_
-        if u_min >= u_max or v_min >= v_max:    # 可能发生
+        if u_min >= u_max or v_min >= v_max:  # 可能发生
             return blank_rgb, blank_d, mask, False
 
         d_in_bbox2d = blank_d[v_min: v_max, u_min: u_max]
@@ -539,7 +544,8 @@ if __name__ == '__main__':
         time2 = time.time()
 
         for label in labels:
-            cv2.putText(image_, str(round(label.area,2)), (int(label.box2d[0]), int(label.box2d[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            cv2.putText(image_, str(round(label.area, 2)), (int(label.box2d[0]), int(label.box2d[1])),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
         dt += time2 - time1
