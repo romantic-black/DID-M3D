@@ -89,7 +89,7 @@ class SampleDatabase:
             database = pickle.load(f)
         with open(self.database_path / "sample_image_database.pkl", "rb") as f:
             self.sample_image_database = pickle.load(f)
-        with open(self.database_path / "sample_depth_database.pkl", "rb") as f:
+        with open(self.database_path / "sample_depth_dense_database.pkl", "rb") as f:
             self.sample_depth_database = pickle.load(f)
 
         if idx_list is not None:
