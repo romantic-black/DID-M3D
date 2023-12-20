@@ -277,7 +277,7 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True):
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=10):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
             radius = 3
@@ -316,25 +316,44 @@ class SampleDatabase:
 
         # 合并筛除结果
         valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
+        valid = np.random.choice(valid, min(max_num, len(valid)), replace=False)
         res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
         return res
 
     @staticmethod
-    def add_samples_to_scene(samples, image, depth, max_num=10, use_edge_blur=False):
-        image_, depth_ = image.copy(), depth.copy()
-        mask = np.zeros(image.shape[:2], dtype=bool)
-        samples = random.sample(samples, np.min([max_num, len(samples)]))
-        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)  # z 降序
-        flag = np.zeros(len(samples), dtype=bool)
-        for i, sample in enumerate(samples):
-            image_, depth_, mask, flag[i] = sample.cover(image_, depth_, mask)
+    def get_merged_points(samples, image, depth, calib):
+        cords, rgbs = [], []
+        for sample in samples:
+            cord, rgb = sample.get_points()
+            cords.append(cord)
+            rgbs.append(rgb)
+        cord, rgb = to3d(image, depth, calib)
+        cord = np.concatenate([cord, *cords], axis=0)
+        rgb = np.concatenate([rgb, *rgbs], axis=0)
+        return cord, rgb
 
-        if use_edge_blur:
-            blur = cv2.GaussianBlur(image_, (3, 3), 0)
-            kernel = np.ones((3, 3), np.uint8)
-            mask_ = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
-            blur_place = mask_.astype(bool) != mask
-            image_[blur_place] = blur[blur_place]
+    @staticmethod
+    def add_samples_to_scene(samples, image, depth, use_edge_blur=False, use_3d_projection=False, calib=None):
+        image_, depth_ = image.copy(), depth.copy()
+        samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)  # z 降序
+        if not use_3d_projection:
+            mask = np.zeros(image.shape[:2], dtype=bool)
+            flag = np.zeros(len(samples), dtype=bool)
+            for i, sample in enumerate(samples):
+                image_, depth_, mask, flag[i] = sample.cover(image_, depth_, mask)
+
+                if use_edge_blur:
+                    blur = cv2.GaussianBlur(image_, (3, 3), 0)
+                    kernel = np.ones((3, 3), np.uint8)
+                    mask_ = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
+                    blur_place = mask_.astype(bool) != mask
+                    image_[blur_place] = blur[blur_place]
+        else:   # 不正确，因为没有依照深度遮挡关系投影
+            assert calib is not None
+            cord, rgb = SampleDatabase.get_merged_points(samples, image_, depth_, calib)
+            image_, depth_ = to2d(cord, rgb, calib)
+            flag = np.ones(len(samples), dtype=bool)
+
         return image_, depth_, [sample for i, sample in enumerate(samples) if flag[i]]
 
 
@@ -385,25 +404,33 @@ class Sample:
             depth = cv2.flip(depth, 1)
         return depth
 
-    def get_points(self):
-        assert self.depth.shape[:2] == self.image.shape[:2]
-        image, depth, calib, label = self.image, self.depth, self.calib, self.label
-        calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
-        xyz, ry = label.pos, label.ry
-        xyz_, ry_ = bbox3d_[:3], bbox3d_[6]
+    def get_points(self, use_transform=False):
+        if not use_transform:
+            assert self.depth.shape[:2] == self.image.shape[:2]
+            image, depth, calib, label = self.image, self.depth, self.calib, self.label
+            calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
+            xyz, ry = label.pos, label.ry
+            xyz_, ry_ = bbox3d_[:3], bbox3d_[6]
 
-        cord, rgb = to3d(image, depth, calib, bbox2d)
+            cord, rgb = to3d(image, depth, calib, bbox2d)
 
-        # 删除 d = 0 的点
-        valid = cord[:, 2] >= 1e-3
-        cord, rgb = cord[valid], rgb[valid]
+            # 删除 d = 0 的点
+            valid = cord[:, 2] >= 1e-3
+            cord, rgb = cord[valid], rgb[valid]
 
-        cord = cord - xyz
-        dr = ry_ - ry
-        R = np.array([[np.cos(dr), 0, np.sin(dr)],
-                      [0, 1, 0],
-                      [-np.sin(dr), 0, np.cos(dr)]])
-        cord = cord @ R.T + xyz_
+            cord = cord - xyz
+            dr = ry_ - ry
+            R = np.array([[np.cos(dr), 0, np.sin(dr)],
+                          [0, 1, 0],
+                          [-np.sin(dr), 0, np.cos(dr)]])
+            cord = cord @ R.T + xyz_
+        else:
+            assert self.depth_.shape[:2] == self.image_.shape[:2]
+            image_, depth_, calib, label = self.image_, self.depth_, self.calib, self.label
+            calib_, bbox3d_, bbox2d, bbox2d_ = self.calib_, self.bbox3d_, self.bbox2d, self.bbox2d_
+            cord, rgb = to3d(image_, depth_, calib_, bbox2d_)
+            valid = cord[:, 2] >= 1e-3
+            cord, rgb = cord[valid], rgb[valid]
 
         return cord, rgb
 
@@ -433,7 +460,7 @@ class Sample:
         depth_ = depth - label.pos[2] + offset.reshape(1, -1) + bbox3d_[2]
         depth_[depth < 1e-2] = 0
 
-        rate = bbox3d_[2] / label.pos[2]  # z_ / z
+        rate = (bbox3d_[2] / calib_.fu) / (label.pos[2] / calib.fu)  # z_ / z
         h_, w_ = round(h / rate), round(w / rate)
 
         depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
@@ -540,6 +567,7 @@ if __name__ == '__main__':
         time1 = time.time()
         samples = database.get_samples(ground, non_ground, calib_, plane_, grid=grid)
         image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
+        # image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, calib=calib_, use_3d_projection=True)
         labels = merge_labels(labels, samples, calib_, image.shape)
         time2 = time.time()
 
