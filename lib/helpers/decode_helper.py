@@ -34,7 +34,7 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
             # score *= dets[i, j, -1]
             # score = dets[i, j, -1] if dets[i, j, -1] < score else score
             # score = score
-            score = dets[i, j, -1]      # score = pred
+            score = dets[i, j, -1]
 
             # heading angle decoding
             alpha = get_heading_angle(dets[i, j, 6:30])
@@ -65,7 +65,7 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
 #     return im_color
 
 # two stage style
-def extract_dets_from_outputs(outputs, conf_mode='ada', K=50, use_pred=False):
+def extract_dets_from_outputs(outputs, conf_mode='ada', K=50):
     # get src outputs
     heatmap = outputs['heatmap']
     size_2d = outputs['size_2d']
@@ -93,9 +93,6 @@ def extract_dets_from_outputs(outputs, conf_mode='ada', K=50, use_pred=False):
         merge_conf = (merge_prob.view(batch, K, -1).max(-1))[0].unsqueeze(2)
     else:
         raise NotImplementedError("%s confidence aggreation is not supported" % conf_mode)
-
-    if use_pred:
-        merge_conf = outputs['pred'].view(batch, K, 2)[:, :, 1].unsqueeze(2)
 
     size_3d = outputs['size_3d'].view(batch, K, -1)
     offset_3d = outputs['offset_3d'].view(batch, K, -1)
