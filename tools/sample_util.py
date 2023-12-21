@@ -59,7 +59,7 @@ def to3d(image, depth, calib, bbox2d=None):
     return cord, rgb
 
 
-def to2d(cord, rgb, calib):
+def to2d(cord, rgb=None, calib=None):
     uv, d = calib.rect_to_img(cord[:, 0:3])
     u, v = np.round(uv[:, 0]).astype(int), np.round(uv[:, 1]).astype(int)
     # 图像大小可能与原图不一致
@@ -67,7 +67,8 @@ def to2d(cord, rgb, calib):
 
     image = np.zeros((height, width, 3), dtype=np.uint8)
     depth = np.zeros((height, width), dtype=np.float32)
-    image[v, u] = rgb
+    if rgb is not None:
+        image[v, u] = rgb
     depth[v, u] = d
     return image, depth
 
@@ -79,7 +80,7 @@ class SampleDatabase:
                  sample_num=30,
                  x_range=(-15., 15.),
                  z_range=(25., 65.),
-                 random_flip=0.5):
+                 random_flip=0.):
         self.database_path = pathlib.Path(database_path)
         assert self.database_path.exists()
         self.image_path = self.database_path / "image"
@@ -464,7 +465,7 @@ class Sample:
         h_, w_ = round(h / rate), round(w / rate)
 
         depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
-        image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_NEAREST)
+        image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_CUBIC)
 
         bbox2d_ = np.tile((bbox2d[:2] - center) / rate + center_, 2)
         bbox2d_ = np.round(bbox2d_).astype(int)
