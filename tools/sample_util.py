@@ -248,15 +248,6 @@ class SampleDatabase:
         xyz_ = np.vstack((x_, y_, z_)).T
         return samples, xyz_, scene_type
 
-    def fixed_sample(self, xyz_, calib_, index):
-        n = xyz_.shape[0]
-        samples = [self.database[index] for i in range(n)]
-        alpha = np.array([[s['label'].alpha] for s in samples])
-        lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
-
-        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(n)])
-        bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
-        return samples, bbox3d_
 
     @staticmethod
     def check_normal_angle(normal, max_degree):
