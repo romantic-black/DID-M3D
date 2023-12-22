@@ -48,38 +48,6 @@ class Trainer(object):
 
         self.model = torch.nn.DataParallel(model).to(self.device)
 
-    def train_pred(self):
-        start_epoch = 0
-        self.epoch = 0
-        self.lr_scheduler.last_epoch = 0
-        for epoch in range(start_epoch, self.cfg_train['max_epoch']):
-            self.logger.info('------ TRAIN EPOCH %03d ------' % (epoch + 1))
-            if self.warmup_lr_scheduler is not None and epoch < 5:
-                self.logger.info('Learning Rate: %f' % self.warmup_lr_scheduler.get_lr()[0])
-            else:
-                self.logger.info('Learning Rate: %f' % self.lr_scheduler.get_lr()[0])
-            ei_loss = self.train_pred_one_epoch()
-            self.epoch += 1
-
-            # update learning rate
-            if self.warmup_lr_scheduler is not None and epoch < 5:
-                self.warmup_lr_scheduler.step()
-            else:
-                self.lr_scheduler.step()
-
-            if ((self.epoch % self.cfg_train['eval_frequency']) == 0 and \
-                    self.epoch >= self.cfg_train['eval_start']):
-                self.logger.info('------ EVAL EPOCH %03d ------' % (self.epoch))
-                self.eval_one_epoch(is_pred=True)
-
-            if ((self.epoch % self.cfg_train['save_frequency']) == 0
-                    and self.epoch >= self.cfg_train['eval_start']):
-                os.makedirs(self.cfg_train['log_dir'] + '/checkpoints', exist_ok=True)
-                ckpt_name = os.path.join(self.cfg_train['log_dir'] + '/checkpoints', 'checkpoint_epoch_%d' % self.epoch)
-                save_checkpoint(get_checkpoint_state(self.model, self.optimizer, self.epoch), ckpt_name, self.logger)
-
-        return None
-
     def train(self):
         start_epoch = self.epoch
         ei_loss = self.compute_e0_loss()
@@ -121,9 +89,6 @@ class Trainer(object):
                     self.epoch >= self.cfg_train['eval_start']):
                 self.logger.info('------ EVAL EPOCH %03d ------' % (self.epoch))
                 self.eval_one_epoch()
-
-
-
 
         return None
 

@@ -59,19 +59,24 @@ def to3d(image, depth, calib, bbox2d=None):
     return cord, rgb
 
 
-def to2d(cord, rgb=None, calib=None):
-    uv, d = calib.rect_to_img(cord[:, 0:3])
-    u, v = np.round(uv[:, 0]).astype(int), np.round(uv[:, 1]).astype(int)
-    # 图像大小可能与原图不一致
-    width, height = u.max() + 1, v.max() + 1
-
-    image = np.zeros((height, width, 3), dtype=np.uint8)
-    depth = np.zeros((height, width), dtype=np.float32)
-    if rgb is not None:
-        image[v, u] = rgb
-    depth[v, u] = d
-    return image, depth
-
+def to2d(cord, rgb, calib, image_shape):
+    assert cord.shape[0] == rgb.shape[0]
+    assert cord.shape[1] == 3, rgb.shape[1] == 3
+    h, w = image_shape[:2]
+    uv, d = calib.rect_to_img(cord)
+    uv = np.round(uv).astype(int)
+    image = np.zeros((h, w, 3), dtype=np.uint8)
+    depth_buffer = np.full((h, w), np.inf)
+    for idx, ((u, v), d) in enumerate(zip(uv, d)):
+        if 0 <= u < w and 0 <= v < h:
+            print(u, v, d)
+            if d < depth_buffer[v, u]:
+                depth_buffer[v, u] = d
+                image[v, u] = rgb[idx]
+    # interpolation where depth_buffer == np.inf
+    mask = (depth_buffer == np.inf).astype(np.uint8)
+    image = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
+    return image, depth_buffer
 
 class SampleDatabase:
     def __init__(self,
@@ -105,9 +110,13 @@ class SampleDatabase:
         self.indices = None
 
     @staticmethod
-    def get_ry_(alpha, xyz_, calib_):
+    def get_ry_(ry, xyz, calib, bbox2d, xyz_, calib_):
+        uv, _ = calib.rect_to_img(xyz.reshape(1, -1))
+        bbox2d_mid = (bbox2d[0] + bbox2d[2]) / 2
+        alpha = calib.ry2alpha(ry, bbox2d_mid)
         uv_, _ = calib_.rect_to_img(xyz_.reshape(1, -1))
-        ry_ = calib_.alpha2ry(alpha, uv_[:, 0])
+        bbox2d_mid_ = uv_[:, 0] + bbox2d_mid - uv[:, 0]
+        ry_ = calib_.alpha2ry(alpha, bbox2d_mid_)
         return ry_
 
     @staticmethod
@@ -119,7 +128,6 @@ class SampleDatabase:
 
     @staticmethod
     def flip_sample(sample):
-        sample = sample.copy()
         calib = sample['calib']
         h, w = sample['image_shape']
         calib.flip([w, h])
@@ -133,7 +141,6 @@ class SampleDatabase:
         sample['label'].alpha = calib.ry2alpha(ry, w - (u_max + u_min) / 2)
         sample['plane'][0] *= -1
         sample['flipped'] = True
-        return sample
 
     def samples_from_database(self, num):
         pointer, indices, database = self.pointer, self.indices, self.database
@@ -156,13 +163,17 @@ class SampleDatabase:
 
         for i, sample in enumerate(samples):
             if np.random.rand() < random_flip:  # 随机翻转
-                samples[i] = self.flip_sample(sample)
+                self.flip_sample(sample)
 
+        calib = np.array([s['calib'] for s in samples])
+        ry = np.array([[s['label'].ry] for s in samples])
+        xyz = np.array([s['label'].pos for s in samples])
+        bbox2d = np.array([s['bbox2d'] for s in samples])
         alpha = np.array([[s['label'].alpha] for s in samples])
         lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
 
         # 采样 bbox3d
-        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(sample_num)])
+        ry_ = np.array([self.get_ry_(ry[i], xyz[i], calib[i], bbox2d[i], xyz_[i], calib_) for i in range(sample_num)])
         bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
 
         return samples, bbox3d_
@@ -439,8 +450,16 @@ class Sample:
     def get_3d_center_in_2d(xyz, calib):  # kitti 的 pos 是底部中心, xyz 需要为实际中心
         xyz = xyz.reshape(1, -1)[:, :3]
         uv, _ = calib.rect_to_img(xyz)
-        uv = np.round(uv).astype(int).reshape(2)
+        uv = uv.reshape(2)
         return uv
+
+    def transform_in_3d(self):
+        assert self.depth.shape[:2] == self.image.shape[:2]
+        cord, rgb = self.get_points()
+        calib, label = self.calib, self.label
+        calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
+        image, depth = to2d(cord, rgb, calib_)
+        return image, depth
 
     def transform(self):
         assert self.depth.shape[:2] == self.image.shape[:2]
@@ -458,10 +477,10 @@ class Sample:
         width = abs(np.sin(alpha_) * label.w) + abs(np.cos(alpha_) * label.l)
         offset = - np.tan(dry) * offset * width / w
 
-        depth_ = depth - label.pos[2] + offset.reshape(1, -1) + bbox3d_[2]
+        depth_ = depth - label.pos[2] + bbox3d_[2] + offset.reshape(1, -1)
         depth_[depth < 1e-2] = 0
 
-        rate = (bbox3d_[2] / calib_.fu) / (label.pos[2] / calib.fu)  # z_ / z
+        rate = (bbox3d_[2] / calib_.fv) / (label.pos[2] / calib.fv)  # z_ / z
         h_, w_ = round(h / rate), round(w / rate)
 
         depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
