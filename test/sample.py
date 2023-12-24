@@ -6,8 +6,8 @@ from tools.visualize_util import show_o3d
 
 class MyTestCase(unittest.TestCase):
     def test_ry(self):
-        np.random.seed(6)
-        random.seed(0)
+        np.random.seed(1)
+        random.seed(1)
         random_flip = 0
         database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_inst_database/", random_flip=random_flip)
         dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
@@ -43,6 +43,8 @@ class MyTestCase(unittest.TestCase):
 
         cord = np.concatenate([*cord_0, *cord_1], axis=0)
         rgb = np.concatenate([*rgb_0, *rgb_1], axis=0)
+        cord = np.concatenate([*cord_1], axis=0)
+        rgb = np.concatenate([*rgb_1], axis=0)
 
         show_o3d(cord, rgb, bbox3d_)
 

@@ -8,7 +8,7 @@ import pickle
 from lib.datasets.kitti_utils import Calibration
 from tools.dataset_util import Dataset
 from sklearn.decomposition import PCA
-from tools.box_util import boxes_bev_iou_cpu, rect2lidar, check_points_in_boxes3d
+from tools.box_util import boxes_bev_iou_cpu, rect2lidar, check_points_in_boxes3d, bbox3d_to_corners_3d
 from lib.datasets.kitti_utils import Object3d
 
 
@@ -65,18 +65,44 @@ def to2d(cord, rgb, calib, image_shape):
     h, w = image_shape[:2]
     uv, d = calib.rect_to_img(cord)
     uv = np.round(uv).astype(int)
+    valid = (0 <= uv[:, 1]) & (uv[:, 1] < h) & (0 <= uv[:, 0]) & (uv[:, 0] < w)
+    u, v = uv[valid].T
+    rgb = rgb[valid]
+    d = d[valid]
     image = np.zeros((h, w, 3), dtype=np.uint8)
-    depth_buffer = np.full((h, w), np.inf)
-    for idx, ((u, v), d) in enumerate(zip(uv, d)):
-        if 0 <= u < w and 0 <= v < h:
-            print(u, v, d)
-            if d < depth_buffer[v, u]:
-                depth_buffer[v, u] = d
-                image[v, u] = rgb[idx]
-    # interpolation where depth_buffer == np.inf
-    mask = (depth_buffer == np.inf).astype(np.uint8)
+    depth = np.full((h, w), np.inf)
+
+    image[v, u] = rgb
+    depth[v, u] = d
+    depth[depth == np.inf] = 0
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+
+    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    largest_contour = max(contours, key=cv2.contourArea)
+
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.fillPoly(mask, [largest_contour], color=255)
+    u_min, v_min, w_, h_ = cv2.boundingRect(largest_contour)
+    v_max = v_min + h_
+    u_max = u_min + w_
+    image = image[v_min: v_max, u_min: u_max]
+    depth = depth[v_min: v_max, u_min: u_max]
+    mask = mask[v_min: v_max, u_min: u_max]
+    thresh = thresh[v_min: v_max, u_min: u_max]
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    dilated = cv2.dilate(mask, kernel, iterations=1)  # 迭代次数为1
+    eroded = cv2.erode(dilated, kernel, iterations=1)  # 迭代次数为1
+
+    depth = (depth * 256).astype(np.uint16)
+    mask = ((eroded == 255) & (thresh == 0)).astype(np.uint8)
     image = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
-    return image, depth_buffer
+    depth = cv2.inpaint(depth, mask, 3, cv2.INPAINT_NS)
+    depth = depth.astype(np.float32) / 256.0
+
+    return image, depth, [u_min, v_min, u_max, v_max]
+
 
 class SampleDatabase:
     def __init__(self,
@@ -248,7 +274,6 @@ class SampleDatabase:
         xyz_ = np.vstack((x_, y_, z_)).T
         return samples, xyz_, scene_type
 
-
     @staticmethod
     def check_normal_angle(normal, max_degree):
         assert normal.shape[0] == 3
@@ -351,7 +376,7 @@ class SampleDatabase:
                     mask_ = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
                     blur_place = mask_.astype(bool) != mask
                     image_[blur_place] = blur[blur_place]
-        else:   # 不正确，因为没有依照深度遮挡关系投影
+        else:  # 不正确，因为没有依照深度遮挡关系投影
             assert calib is not None
             cord, rgb = SampleDatabase.get_merged_points(samples, image_, depth_, calib)
             image_, depth_ = to2d(cord, rgb, calib)
@@ -373,6 +398,7 @@ class Sample:
         self.plane = sample['plane']
         self.bbox2d = sample['bbox2d']
         self.name = sample['name']
+        self.image_shape = sample['image_shape']
 
         self.flipped = sample.get('flipped', False)
         self.image = self.get_image(flip=self.flipped)
@@ -380,7 +406,7 @@ class Sample:
 
         self.occlusion_ = 0  # 需要在最终图像中求
         self.trucation_ = 0
-        self.image_, self.depth_, self.bbox2d_ = self.transform()
+        self.image_, self.depth_, self.bbox2d_ = self.transform_in_3d()
 
     def __repr__(self):
         return f"Sample(name={self.name})"
@@ -407,7 +433,7 @@ class Sample:
             depth = cv2.flip(depth, 1)
         return depth
 
-    def get_points(self, use_transform=False):
+    def get_points(self, use_transform=False, use_source=False):
         if not use_transform:
             assert self.depth.shape[:2] == self.image.shape[:2]
             image, depth, calib, label = self.image, self.depth, self.calib, self.label
@@ -420,13 +446,16 @@ class Sample:
             # 删除 d = 0 的点
             valid = cord[:, 2] >= 1e-3
             cord, rgb = cord[valid], rgb[valid]
+            if use_source:
+                return cord, rgb
 
             cord = cord - xyz
-            dr = ry_ - ry
-            R = np.array([[np.cos(dr), 0, np.sin(dr)],
-                          [0, 1, 0],
-                          [-np.sin(dr), 0, np.cos(dr)]])
-            cord = cord @ R.T + xyz_
+            dry = ry_ - ry
+            Ry = np.array([[np.cos(dry), 0, np.sin(dry)],
+                           [0, 1, 0],
+                           [-np.sin(dry), 0, np.cos(dry)]])
+
+            cord = cord @ Ry.T + xyz_
         else:
             assert self.depth_.shape[:2] == self.image_.shape[:2]
             image_, depth_, calib, label = self.image_, self.depth_, self.calib, self.label
@@ -446,11 +475,55 @@ class Sample:
 
     def transform_in_3d(self):
         assert self.depth.shape[:2] == self.image.shape[:2]
-        cord, rgb = self.get_points()
+        cord, rgb = self.get_points(use_source=True)
+
         calib, label = self.calib, self.label
         calib_, bbox3d_, bbox2d = self.calib_, self.bbox3d_, self.bbox2d
-        image, depth = to2d(cord, rgb, calib_)
-        return image, depth
+
+        xyz, ry = label.pos, label.ry
+        xyz_, ry_ = bbox3d_[:3], bbox3d_[6]
+
+        uv_tmp, _ = calib.rect_to_img((xyz_ - [0, label.h / 2, 0]).reshape(1, -1))
+        u_tmp = uv_tmp[0, 0:1]
+        uv_tmp, _ = calib.rect_to_img((xyz - [0, label.h / 2, 0]).reshape(1, -1))
+        v_tmp = uv_tmp[0, 1:2]
+        xyz_tmp = calib.img_to_rect(u_tmp, v_tmp, xyz[2:])
+        xyz_tmp = xyz_tmp.reshape(3)
+        u_tmp = u_tmp[0]
+        v_tmp = v_tmp[0]
+
+        dry = ry_ - ry
+        rx = np.arctan2(xyz[2], xyz_[1] - label.h / 2)
+        rx_ = np.arctan2(xyz_[2], xyz_[1] - label.h / 2)
+        drx = - (rx_ - rx)  # 要修正，所以反着转
+
+        Ry = np.array([[np.cos(dry), 0, np.sin(dry)],
+                       [0, 1, 0],
+                       [-np.sin(dry), 0, np.cos(dry)]])
+
+        Rx = np.array([[1, 0, 0],
+                       [0, np.cos(drx), -np.sin(drx)],
+                       [0, np.sin(drx), np.cos(drx)]])
+
+        cord = (cord - xyz + [0, label.h / 2, 0]) @ Ry.T @ Rx.T + xyz_tmp - [0, label.h / 2, 0]
+
+        image, depth, bbox2d_tmp = to2d(cord, rgb, calib, self.image_shape)
+
+        center_tmp = self.get_3d_center_in_2d(xyz_tmp + [0, -label.h / 2, 0], calib)
+        center_ = self.get_3d_center_in_2d(bbox3d_[:3] + [0, -label.h / 2, 0], calib_)
+        depth_ = depth - xyz_tmp[2] + xyz_[2]
+        depth_[depth < 1e-2] = 0
+        h, w = image.shape[:2]
+        rate = (xyz_[2] / calib_.fv) / (xyz_tmp[2] / calib.fv)
+        h_, w_ = round(h / rate), round(w / rate)
+        #image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_NEAREST)
+        #depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
+
+        # bbox2d_ = np.tile((bbox2d_tmp[:2] - center_tmp) / rate + center_, 2)
+        # bbox2d_ = np.round(bbox2d_).astype(int)
+        # bbox2d_[2:] += [w_, h_]
+
+        return image, depth_, bbox2d_tmp
 
     def transform(self):
         assert self.depth.shape[:2] == self.image.shape[:2]
@@ -475,7 +548,7 @@ class Sample:
         h_, w_ = round(h / rate), round(w / rate)
 
         depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
-        image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_CUBIC)
+        image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_NEAREST)
 
         bbox2d_ = np.tile((bbox2d[:2] - center) / rate + center_, 2)
         bbox2d_ = np.round(bbox2d_).astype(int)

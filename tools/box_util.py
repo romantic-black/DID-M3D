@@ -67,6 +67,29 @@ def get_objects_in_boxes3d(points, boxes3d, enlarge=False):
     return objects
 
 
+def bbox3d_to_corners_3d(bbox3d):
+    """
+    generate corners3d representation for this object
+    :return corners_3d: (8, 3) corners of box3d in camera coord
+    """
+    l, h, w = bbox3d[3:6]
+    ry = bbox3d[6]
+    xyz = bbox3d[0:3]
+
+    x_corners = [l / 2, l / 2,  -l / 2, -l / 2, l / 2, l / 2,  -l / 2, -l / 2]
+    y_corners = [0,     0,      0,      0,      -h,    -h,     -h,     -h]
+    z_corners = [w / 2, -w / 2, -w / 2, w / 2,  w / 2, -w / 2, -w / 2, w / 2]
+
+    R = np.array([[np.cos(ry), 0, np.sin(ry)],
+                  [0, 1, 0],
+                  [-np.sin(ry), 0, np.cos(ry)]])
+
+    corners3d = np.vstack([x_corners, y_corners, z_corners])  # (3, 8)
+    corners3d = np.dot(R, corners3d).T
+    corners3d = corners3d + xyz
+
+    return corners3d
+
 def check_points_in_boxes3d(points, boxes3d, enlarge=False):
     points = copy.deepcopy(points)
     boxes3d, is_numpy = check_numpy_to_torch(boxes3d)
