@@ -47,21 +47,21 @@ def remove_points_in_boxes3d(points, boxes3d, enlarge=False):
     if enlarge:
         boxes3d[:, 3:6] += enlarge
     point_masks = points_in_boxes_cpu(points[:, 0:3], boxes3d)
-    points = points[point_masks.sum(dim=0) == 0]
+    points = points[point_masks[0] == 0]
 
     return points.numpy() if is_numpy else points
 
 
-def get_objects_in_boxes3d(points, boxes3d, enlarge=False):
+def get_objects_in_boxes3d(points, boxes3d, enlarge=None):
     points = copy.deepcopy(points)
     boxes3d, is_numpy = check_numpy_to_torch(boxes3d)
     points, is_numpy = check_numpy_to_torch(points)
     objects = []
-    if enlarge:
+    if enlarge is not None:
         boxes3d[:, 3:6] += enlarge
     for box3d in boxes3d:
         point_masks = points_in_boxes_cpu(points[:, 0:3], box3d.unsqueeze(dim=0))
-        obj = points[point_masks.sum(dim=0) > 0]
+        obj = points[point_masks[0] > 0]
         objects.append(obj.numpy()) if is_numpy else obj
 
     return objects

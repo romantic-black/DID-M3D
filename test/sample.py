@@ -6,7 +6,7 @@ from tools.visualize_util import show_o3d
 
 class MyTestCase(unittest.TestCase):
     def test_ry(self):
-        np.random.seed(1)
+        np.random.seed(9)
         random.seed(1)
         random_flip = 0
         database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_inst_database/", random_flip=random_flip)
@@ -25,7 +25,7 @@ class MyTestCase(unittest.TestCase):
         x_ = np.arange(-15, 15, 5)
         z_ = np.arange(20, 60, 5)
         x_, z_ = np.meshgrid(x_, z_)
-        y_ = np.zeros_like(x_)
+        y_ = np.zeros_like(x_) + sample['label'].pos[1]
         xyz_ = np.stack([x_, y_ , z_], axis=-1).reshape(-1, 3)
         samples = [sample for _ in range(xyz_.shape[0])]
         samples, bbox3d_ = database.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=random_flip)
@@ -43,8 +43,8 @@ class MyTestCase(unittest.TestCase):
 
         cord = np.concatenate([*cord_0, *cord_1], axis=0)
         rgb = np.concatenate([*rgb_0, *rgb_1], axis=0)
-        cord = np.concatenate([*cord_1], axis=0)
-        rgb = np.concatenate([*rgb_1], axis=0)
+        #cord = np.concatenate([*cord_1], axis=0)
+        #rgb = np.concatenate([*rgb_1], axis=0)
 
         show_o3d(cord, rgb, bbox3d_)
 

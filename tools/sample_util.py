@@ -72,8 +72,11 @@ def to2d(cord, rgb, calib, image_shape):
     image = np.zeros((h, w, 3), dtype=np.uint8)
     depth = np.full((h, w), np.inf)
 
-    image[v, u] = rgb
-    depth[v, u] = d
+    for i in range(len(u)):
+        if d[i] < depth[v[i], u[i]]:
+            depth[v[i], u[i]] = d[i]
+            image[v[i], u[i]] = rgb[i]
+
     depth[depth == np.inf] = 0
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
 
@@ -97,8 +100,8 @@ def to2d(cord, rgb, calib, image_shape):
 
     depth = (depth * 256).astype(np.uint16)
     mask = ((eroded == 255) & (thresh == 0)).astype(np.uint8)
-    image = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
-    depth = cv2.inpaint(depth, mask, 3, cv2.INPAINT_NS)
+    #image = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
+    #depth = cv2.inpaint(depth, mask, 3, cv2.INPAINT_NS)
     depth = depth.astype(np.float32) / 256.0
 
     return image, depth, [u_min, v_min, u_max, v_max]
@@ -361,26 +364,20 @@ class SampleDatabase:
         return cord, rgb
 
     @staticmethod
-    def add_samples_to_scene(samples, image, depth, use_edge_blur=False, use_3d_projection=False, calib=None):
+    def add_samples_to_scene(samples, image, depth, use_edge_blur=False):
         image_, depth_ = image.copy(), depth.copy()
         samples = sorted(samples, key=lambda x: x.bbox3d_[2], reverse=True)  # z 降序
-        if not use_3d_projection:
-            mask = np.zeros(image.shape[:2], dtype=bool)
-            flag = np.zeros(len(samples), dtype=bool)
-            for i, sample in enumerate(samples):
-                image_, depth_, mask, flag[i] = sample.cover(image_, depth_, mask)
+        mask = np.zeros(image.shape[:2], dtype=bool)
+        flag = np.zeros(len(samples), dtype=bool)
+        for i, sample in enumerate(samples):
+            image_, depth_, mask, flag[i] = sample.cover(image_, depth_, mask)
 
-                if use_edge_blur:
-                    blur = cv2.GaussianBlur(image_, (3, 3), 0)
-                    kernel = np.ones((3, 3), np.uint8)
-                    mask_ = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
-                    blur_place = mask_.astype(bool) != mask
-                    image_[blur_place] = blur[blur_place]
-        else:  # 不正确，因为没有依照深度遮挡关系投影
-            assert calib is not None
-            cord, rgb = SampleDatabase.get_merged_points(samples, image_, depth_, calib)
-            image_, depth_ = to2d(cord, rgb, calib)
-            flag = np.ones(len(samples), dtype=bool)
+            if use_edge_blur:
+                blur = cv2.GaussianBlur(image_, (3, 3), 0)
+                kernel = np.ones((3, 3), np.uint8)
+                mask_ = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
+                blur_place = mask_.astype(bool) != mask
+                image_[blur_place] = blur[blur_place]
 
         return image_, depth_, [sample for i, sample in enumerate(samples) if flag[i]]
 
@@ -488,14 +485,15 @@ class Sample:
         uv_tmp, _ = calib.rect_to_img((xyz - [0, label.h / 2, 0]).reshape(1, -1))
         v_tmp = uv_tmp[0, 1:2]
         xyz_tmp = calib.img_to_rect(u_tmp, v_tmp, xyz[2:])
-        xyz_tmp = xyz_tmp.reshape(3)
+        xyz_tmp = xyz_tmp.reshape(3) + [0, label.h / 2, 0]
         u_tmp = u_tmp[0]
         v_tmp = v_tmp[0]
 
         dry = ry_ - ry
-        rx = np.arctan2(xyz[2], xyz_[1] - label.h / 2)
+        rx = np.arctan2(xyz[2], xyz[1] - label.h / 2)
         rx_ = np.arctan2(xyz_[2], xyz_[1] - label.h / 2)
         drx = - (rx_ - rx)  # 要修正，所以反着转
+        print(drx * 180 / np.pi)
 
         Ry = np.array([[np.cos(dry), 0, np.sin(dry)],
                        [0, 1, 0],
@@ -516,14 +514,14 @@ class Sample:
         h, w = image.shape[:2]
         rate = (xyz_[2] / calib_.fv) / (xyz_tmp[2] / calib.fv)
         h_, w_ = round(h / rate), round(w / rate)
-        #image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_NEAREST)
-        #depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
+        image_ = cv2.resize(image, (w_, h_), interpolation=cv2.INTER_NEAREST)
+        depth_ = cv2.resize(depth_, (w_, h_), interpolation=cv2.INTER_NEAREST)
 
-        # bbox2d_ = np.tile((bbox2d_tmp[:2] - center_tmp) / rate + center_, 2)
-        # bbox2d_ = np.round(bbox2d_).astype(int)
-        # bbox2d_[2:] += [w_, h_]
+        bbox2d_ = np.tile((bbox2d_tmp[:2] - center_tmp) / rate + center_, 2)
+        bbox2d_ = np.round(bbox2d_).astype(int)
+        bbox2d_[2:] += [w_, h_]
 
-        return image, depth_, bbox2d_tmp
+        return image_, depth_, bbox2d_.tolist()
 
     def transform(self):
         assert self.depth.shape[:2] == self.image.shape[:2]
@@ -531,7 +529,7 @@ class Sample:
         calib_, bbox3d_, bbox2d, alpha_ = self.calib_, self.bbox3d_, self.bbox2d, self.alpha_
 
         center = self.get_3d_center_in_2d(label.pos + [0, -label.h / 2, 0], calib)
-        center_ = self.get_3d_center_in_2d(bbox3d_[:3] + [0, -bbox3d_[4] / 2, 0], calib_)
+        center_ = self.get_3d_center_in_2d(bbox3d_[:3] + [0, -label.h / 2, 0], calib_)
 
         dry = bbox3d_[6] - label.ry  # ry_ - ry
         h, w = depth.shape
