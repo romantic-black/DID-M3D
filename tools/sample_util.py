@@ -129,7 +129,6 @@ class SampleDatabase:
             self.sample_depth_database = pickle.load(f)
 
         if idx_list is not None:
-            idx_list = [str(int(idx)) for idx in idx_list]
             database = database[database['idx'].isin(idx_list)]
         self.database = database
         self.z2y = database['z/y'].to_numpy()
