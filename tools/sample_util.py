@@ -4,6 +4,7 @@ import pathlib
 import re
 import random
 import cv2
+import pandas as pd
 import pickle
 from lib.datasets.kitti_utils import Calibration
 from tools.dataset_util import Dataset
@@ -121,15 +122,21 @@ class SampleDatabase:
         self.depth_path = self.database_path / "depth"
         # self.mask_path = self.database_path / "mask"
         with open(self.database_path / "kitti_car_database.pkl", "rb") as f:
-            database = pickle.load(f)
+            database = pd.read_pickle(f)
         with open(self.database_path / "sample_image_database.pkl", "rb") as f:
             self.sample_image_database = pickle.load(f)
         with open(self.database_path / "sample_depth_dense_database.pkl", "rb") as f:
             self.sample_depth_database = pickle.load(f)
 
         if idx_list is not None:
-            [database.pop(key) for key in list(database.keys()) if key.split("_")[0] not in idx_list]
-        self.database = list(database.values())
+            idx_list = [str(int(idx)) for idx in idx_list]
+            database = database[database['idx'].isin(idx_list)]
+        self.database = database
+        self.z2y = database['z/y'].to_numpy()
+        self.x2z = database['x/z'].to_numpy()
+        self.z = database['z'].to_numpy()
+        self.h = database['h'].to_numpy()
+
         self.sample_num = sample_num
         self.x_range = x_range
         self.z_range = z_range
@@ -170,6 +177,28 @@ class SampleDatabase:
         sample['label'].alpha = calib.ry2alpha(ry, w - (u_max + u_min) / 2)
         sample['plane'][0] *= -1
         sample['flipped'] = True
+
+    def samples_with_range(self, xyz_, max_z2y=0.5, max_x2z=10, max_dz=10, max_rate=1.2, min_rate=0.5):
+        df, z2y, x2z, z, h = self.database, self.z2y, self.x2z, self.z, self.h
+        x2z_ = np.arctan2(xyz_[:, 0], xyz_[:, 2]) * 180 / np.pi
+        z_ = xyz_[:, 2]
+        samples = []
+        xyz_list = []
+        for i in range(xyz_.shape[0]):
+            z2y_ = np.arctan2(xyz_[i, 2], xyz_[i, 1] - h / 2) * 180 / np.pi
+            condition = ((z2y < max_z2y + z2y_) & (z2y >  - max_z2y + z2y_) &
+                        (x2z < max_x2z + x2z_[i]) & (x2z > - max_x2z + x2z_[i]) &
+                        (z < max_dz + z_[i]) & (z > - max_dz + z_[i]) &
+                        (z / z_[i] < max_rate) & (z / z_[i] > min_rate))
+
+            df_ = df[condition]
+            if len(df_) == 0:
+                continue
+            sample = df_.sample(n=1).iloc[0]
+            samples.append(sample)
+            xyz_list.append(xyz_[i])
+
+        return samples, np.array(xyz_list)
 
     def samples_from_database(self, num):
         pointer, indices, database = self.pointer, self.indices, self.database
@@ -249,9 +278,9 @@ class SampleDatabase:
 
         # 选取指定范围的 grid
         state = {
-            'a': lambda x: (60 > x[:, 1]) & (x[:, 1] >= 40),
-            'b': lambda x: (50 > x[:, 1]) & (x[:, 1] >= 30),
-            'c': lambda x: (40 > x[:, 1]) & (x[:, 1] >= 20),
+            'a': lambda x: (60 > x[:, 1]) & (x[:, 1] >= 40) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
+            'b': lambda x: (50 > x[:, 1]) & (x[:, 1] >= 30) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
+            'c': lambda x: (40 > x[:, 1]) & (x[:, 1] >= 20) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
             'd': lambda x: np.zeros_like(x[:, 1], dtype=bool)
         }
         valid = state[scene_type](pos2d)
@@ -264,7 +293,6 @@ class SampleDatabase:
         grid_sum = pos2d.shape[0]
 
         sample_num = grid_sum // 10
-        samples = self.samples_from_database(sample_num)
 
         indices = np.random.choice(pos2d.shape[0], sample_num, replace=False)
         offset = np.random.uniform(-grid_size / 2, grid_size / 2, size=(sample_num, 2))
@@ -275,6 +303,8 @@ class SampleDatabase:
         y_ = np.array([self.get_y_on_plane(x_[i], z_[i], plane_[i]) for i in range(sample_num)])
 
         xyz_ = np.vstack((x_, y_, z_)).T
+
+        samples, xyz_ = self.samples_with_range(xyz_)
         return samples, xyz_, scene_type
 
     @staticmethod
@@ -403,7 +433,7 @@ class Sample:
 
         self.occlusion_ = 0  # 需要在最终图像中求
         self.trucation_ = 0
-        self.image_, self.depth_, self.bbox2d_ = self.transform_in_3d()
+        self.image_, self.depth_, self.bbox2d_ = self.transform()
 
     def __repr__(self):
         return f"Sample(name={self.name})"
@@ -633,14 +663,14 @@ if __name__ == '__main__':
     test_dir = Path("/mnt/e/DataSet/kitti/kitti_inst_database/test")
     np.random.seed(0)
 
-    database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_inst_database/")
+    database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_drx_database/")
     dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
     mean_samples = 0
     n = 200
     dt = 0
     for idx in range(n):
         calib_ = dataset.get_calib(idx)
-        image, depth = dataset.get_image_with_depth(idx, use_penet=True)
+        image, depth = dataset.get_image_with_depth(idx, use_penet=False)
         ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
         plane_ = dataset.get_plane(idx)
         grid = dataset.get_grid(idx)
@@ -654,7 +684,7 @@ if __name__ == '__main__':
         time2 = time.time()
 
         for label in labels:
-            cv2.putText(image_, str(round(label.area, 2)), (int(label.box2d[0]), int(label.box2d[1])),
+            cv2.putText(image_, str(round(label.pos[-1], 2)), (int(label.box2d[0]), int(label.box2d[1])),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
