@@ -277,21 +277,21 @@ class SampleDatabase:
 
         # 选取指定范围的 grid
         state = {
-            'a': lambda x: (45 > x[:, 1]) & (x[:, 1] >= 30) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
-            'b': lambda x: (40 > x[:, 1]) & (x[:, 1] >= 25) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
-            'c': lambda x: (35 > x[:, 1]) & (x[:, 1] >= 20) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
-            'd': lambda x: np.zeros_like(x[:, 1], dtype=bool)
+            'a': lambda x: (x[:, 1] >= 25) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
+            'b': lambda x: (x[:, 1] >= 20) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
+            'c': lambda x: (x[:, 1] >= 15) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
+            'd': lambda x: (x[:, 1] >= 10) & (x[:, 0] >= -10) & (x[:, 0] <= 10)
         }
         valid = state[scene_type](pos2d)
         pos2d = pos2d[valid]
 
         return pos2d, scene_type
 
-    def sample_from_grid(self, grid, grid_size=1.):
+    def sample_from_grid(self, grid, grid_size=1., max_sample_num=50):
         pos2d, scene_type = self.get_valid_grid(grid)
         grid_sum = pos2d.shape[0]
 
-        sample_num = grid_sum // 10
+        sample_num = min(grid_sum // 10, max_sample_num)
 
         indices = np.random.choice(pos2d.shape[0], sample_num, replace=False)
         offset = np.random.uniform(-grid_size / 2, grid_size / 2, size=(sample_num, 2))
