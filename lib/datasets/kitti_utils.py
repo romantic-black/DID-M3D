@@ -45,7 +45,7 @@ class Object3d(object):
             self.level_str = 'Moderate'
             return 2  # Moderate
         # 注意：原本限制为 25，但这样就筛除了 50m 以上的物体，所以改为 20
-        elif height >= 20 and self.trucation <= 0.5 and self.occlusion <= 2:
+        elif height >= 25 and self.trucation <= 0.5 and self.occlusion <= 2:
             self.level_str = 'Hard'
             return 3  # Hard
         else:
