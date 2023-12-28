@@ -277,17 +277,17 @@ class SampleDatabase:
 
         # 选取指定范围的 grid
         state = {
-            'a': lambda x: (x[:, 1] >= 25) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
-            'b': lambda x: (x[:, 1] >= 20) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
-            'c': lambda x: (x[:, 1] >= 15) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
-            'd': lambda x: (x[:, 1] >= 10) & (x[:, 0] >= -10) & (x[:, 0] <= 10)
+            'a': lambda x: (x[:, 1] >= 20) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
+            'b': lambda x: (x[:, 1] >= 15) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
+            'c': lambda x: (x[:, 1] >= 10) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
+            'd': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10)
         }
         valid = state[scene_type](pos2d)
         pos2d = pos2d[valid]
 
         return pos2d, scene_type
 
-    def sample_from_grid(self, grid, grid_size=1., max_sample_num=50):
+    def sample_from_grid(self, grid, grid_size=1., max_sample_num=40):
         pos2d, scene_type = self.get_valid_grid(grid)
         grid_sum = pos2d.shape[0]
 
@@ -659,7 +659,7 @@ import time
 import datetime
 
 if __name__ == '__main__':
-    test_dir = Path("/mnt/e/DataSet/kitti/kitti_inst_database/test")
+    test_dir = Path("/mnt/e/DataSet/kitti/kitti_drx_database/test")
     np.random.seed(0)
 
     database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_drx_database/")
