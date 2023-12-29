@@ -277,9 +277,9 @@ class SampleDatabase:
 
         # 选取指定范围的 grid
         state = {
-            'a': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
-            'b': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
-            'c': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
+            'a': lambda x: (x[:, 1] >= 20) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
+            'b': lambda x: (x[:, 1] >= 15) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
+            'c': lambda x: (x[:, 1] >= 10) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
             'd': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10)
         }
         valid = state[scene_type](pos2d)
@@ -287,7 +287,7 @@ class SampleDatabase:
 
         return pos2d, scene_type
 
-    def sample_from_grid(self, grid, grid_size=1., max_sample_num=40):
+    def sample_from_grid(self, grid, grid_size=1., max_sample_num=20):
         pos2d, scene_type = self.get_valid_grid(grid)
         grid_sum = pos2d.shape[0]
 
@@ -337,7 +337,7 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=10):
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=5):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
             radius = 3
