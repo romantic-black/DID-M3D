@@ -121,11 +121,11 @@ class SampleDatabase:
         self.image_path = self.database_path / "image"
         self.depth_path = self.database_path / "depth"
         # self.mask_path = self.database_path / "mask"
-        with open(self.database_path / "kitti_car_database.pkl", "rb") as f:
+        with open(self.database_path / "kitti_car_database_with_flip.pkl", "rb") as f:
             database = pd.read_pickle(f)
-        with open(self.database_path / "sample_image_database.pkl", "rb") as f:
+        with open(self.database_path / "sample_image_database_with_flip.pkl", "rb") as f:
             self.sample_image_database = pickle.load(f)
-        with open(self.database_path / "sample_depth_dense_database.pkl", "rb") as f:
+        with open(self.database_path / "sample_depth_dense_database_with_flip.pkl", "rb") as f:
             self.sample_depth_database = pickle.load(f)
 
         if idx_list is not None:
@@ -163,6 +163,7 @@ class SampleDatabase:
 
     @staticmethod
     def flip_sample(sample):
+        # 没考虑深拷贝，所以有很大问题
         calib = sample['calib']
         h, w = sample['image_shape']
         calib.flip([w, h])
@@ -213,14 +214,10 @@ class SampleDatabase:
         self.indices = indices
         return samples
 
-    def xyz_to_bbox3d(self, samples, xyz_, calib_, random_flip=0.):
+    def xyz_to_bbox3d(self, samples, xyz_, calib_):
         sample_num = len(samples)
         if sample_num == 0:
             return [], np.zeros((0, 7))
-
-        for i, sample in enumerate(samples):
-            if np.random.rand() < random_flip:  # 随机翻转
-                self.flip_sample(sample)
 
         calib = np.array([s['calib'] for s in samples])
         ry = np.array([[s['label'].ry] for s in samples])
@@ -287,7 +284,7 @@ class SampleDatabase:
 
         return pos2d, scene_type
 
-    def sample_from_grid(self, grid, grid_size=1., max_sample_num=20):
+    def sample_from_grid(self, grid, grid_size=1., max_sample_num=40):
         pos2d, scene_type = self.get_valid_grid(grid)
         grid_sum = pos2d.shape[0]
 
@@ -337,7 +334,7 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=5):
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=10):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
             radius = 3
@@ -346,7 +343,7 @@ class SampleDatabase:
             samples, xyz_, scene_type = self.sample_from_grid(grid)
             radius = {'a': 4, 'b': 3, 'c': 2, 'd': 1}[scene_type]
 
-        samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=self.random_flip)
+        samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_)
 
         flag1 = np.ones((bbox3d_.shape[0]), dtype=bool)
         # 判断样本是否在地面上，第一次筛除
