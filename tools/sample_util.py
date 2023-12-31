@@ -423,9 +423,9 @@ class Sample:
         self.name = sample['name']
         self.image_shape = sample['image_shape']
 
-        self.flipped = sample.get('flipped', False)
-        self.image = self.get_image(flip=self.flipped)
-        self.depth = self.get_depth(flip=self.flipped)
+        self.flipped = sample['flipped']
+        self.image = self.get_image()
+        self.depth = self.get_depth()
 
         self.occlusion_ = 0  # 需要在最终图像中求
         self.trucation_ = 0
@@ -434,26 +434,22 @@ class Sample:
     def __repr__(self):
         return f"Sample(name={self.name})"
 
-    def get_image(self, flip=False):
+    def get_image(self):
         try:
             image = self.database.sample_image_database[self.name]
         except KeyError:
             image_file = self.database.image_path / (self.name + ".png")
             assert image_file.exists()
             image = cv2.imread(str(image_file))
-        if flip:
-            image = cv2.flip(image, 1)
         return image
 
-    def get_depth(self, flip=False):
+    def get_depth(self):
         try:
             depth = self.database.sample_depth_database[self.name]
         except KeyError:
             depth_file = self.database.depth_path / (self.name + ".png")
             assert depth_file.exists()
             depth = cv2.imread(str(depth_file), cv2.IMREAD_UNCHANGED) / 256.0
-        if flip:
-            depth = cv2.flip(depth, 1)
         return depth
 
     def get_points(self, use_transform=False, use_source=False):
