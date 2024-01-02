@@ -11,7 +11,7 @@ from lib.datasets.kitti_utils import Calibration, Object3d, get_objects_from_lab
 
 class Dataset:
     def __init__(self, split, dataset_path):
-        assert split in ["train", "val", "test"]
+        assert split in ["train", "val", "test", "trainval"]
         self.split = split
         self.dataset_name = 'testing' if split == 'test' else 'training'
         self.dataset_path = pathlib.Path(rf"{dataset_path}/{self.dataset_name}")
