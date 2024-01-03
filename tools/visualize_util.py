@@ -43,20 +43,33 @@ def draw_3d_box(corner, color=(1, 0, 0)):
 def show_o3d(cord, rgb=None, bbox3d=None):
     vis = o3d.visualization.Visualizer()
     vis.create_window()
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(cord[:, 0:3])
-    if rgb is not None:
-        pcd.colors = o3d.utility.Vector3dVector(rgb / 256.)
+    if not isinstance(cord, list):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(cord[:, 0:3])
+        if rgb is not None:
+            pcd.colors = o3d.utility.Vector3dVector(rgb / 256.)
+        else:
+            pcd.colors = o3d.utility.Vector3dVector(np.array([[0, 0, 0]]) / 256.)
     else:
-        pcd.colors = o3d.utility.Vector3dVector(np.array([[0, 0, 0]]) / 256.)
+        rgbs = []
+        for i in range(len(cord)):
+            assert isinstance(rgb, list)
+            rgb_tmp = np.array(rgb[i])
+            rgb_tmp = np.repeat(rgb_tmp[np.newaxis, :], cord[i].shape[0], axis=0)
+            rgbs.append(rgb_tmp)
+        rgbs = np.concatenate(rgbs, axis=0)
+        cords = np.concatenate(cord, axis=0)
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(cords[:, 0:3])
+        pcd.colors = o3d.utility.Vector3dVector(rgbs / 256.)
+
+    vis.add_geometry(pcd)
 
     if bbox3d is not None:
         corners = generate_corners(bbox3d)
         for corner in corners:
             line_set = draw_3d_box(corner)
             vis.add_geometry(line_set)
-
-    vis.add_geometry(pcd)
 
     vis.run()
     vis.destroy_window()

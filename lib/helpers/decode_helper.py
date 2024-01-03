@@ -34,7 +34,7 @@ def decode_detections(dets, info, calibs, cls_mean_size, threshold, problist=Non
             # score *= dets[i, j, -1]
             # score = dets[i, j, -1] if dets[i, j, -1] < score else score
             # score = score
-            score = dets[i, j, -1]
+            score = min(dets[i, j, -1], 1.)
 
             # heading angle decoding
             alpha = get_heading_angle(dets[i, j, 6:30])

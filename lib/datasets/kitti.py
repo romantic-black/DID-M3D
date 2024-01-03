@@ -100,11 +100,17 @@ class KITTI(data.Dataset):
     def __len__(self):
         return self.idx_list.__len__()
 
-    def get_data(self, idx, use_aug=False):
+    def get_data(self, idx, use_aug=False, test=False):
         dataset, database = self.dataset, self.database
-        image, depth = dataset.get_image_with_depth(idx, use_penet=False)
         calib = dataset.get_calib(idx)
-        _, _, labels = dataset.get_bbox(idx, chosen_cls=["Car", 'Van', 'Truck', 'DontCare'])
+
+        if test:
+            labels = None
+            image = dataset.get_image(idx)
+            depth = np.zeros((image.shape[0], image.shape[1]), dtype=np.float32)
+        else:
+            image, depth = dataset.get_image_with_depth(idx, use_penet=False)
+            _, _, labels = dataset.get_bbox(idx, chosen_cls=["Car", 'Van', 'Truck', 'DontCare'])
 
         if use_aug:
             ground, non_ground = dataset.get_lidar_with_ground(idx, fov=True)
@@ -123,7 +129,7 @@ class KITTI(data.Dataset):
         random_sample_flag = False
         if self.data_augmentation and np.random.random() < self.random_sample:
             random_sample_flag = True
-        img, d, objects, calib = self.get_data(index, use_aug=random_sample_flag)
+        img, d, objects, calib = self.get_data(index, use_aug=random_sample_flag, test=self.split == 'test')
         img_size = np.array(img.size)
 
         # data augmentation for image

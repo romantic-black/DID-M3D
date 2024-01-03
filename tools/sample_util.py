@@ -178,7 +178,7 @@ class SampleDatabase:
         sample['plane'][0] *= -1
         sample['flipped'] = True
 
-    def samples_with_range(self, xyz_, max_z2y=1.5, max_x2z=20, max_dz=20, max_rate=2.0, min_rate=0.3):
+    def samples_with_range(self, xyz_, max_z2y=0.5, max_x2z=10, max_dz=10, max_rate=1.2, min_rate=0.5):
         df, z2y, x2z, z, h = self.database, self.z2y, self.x2z, self.z, self.h
         x2z_ = np.arctan2(xyz_[:, 0], xyz_[:, 2]) * 180 / np.pi
         z_ = xyz_[:, 2]
