@@ -126,11 +126,22 @@ class SampleDatabase:
         with open(self.database_path / "sample_depth_dense_database_with_flip.pkl", "rb") as f:
             self.sample_depth_database = pickle.load(f)
 
-        self.config = config
+        self.config = config if config is not None else {
+            "prob": 0.5,
+            "database_num": -1,
+            'sample_num': 10,
+            'sample_constraint':{
+                "max_z2y": 0.5,
+                'max_x2z': 10,
+                'max_dz': 10,
+                'max_rate': 1.2,
+                'min_rate': 0.5,
+            }
+        }
         if idx_list is not None:
             database = database[database['idx'].isin(idx_list)]
-        database_num = config["database_num"]
-        self.sample_num = config["sample_num"]
+        database_num = self.config["database_num"]
+        self.sample_num = self.config["sample_num"]
         self.database = database.sample(n=database_num) if database_num != -1 else database
         self.z2y = database['z/y'].to_numpy()
         self.x2z = database['x/z'].to_numpy()
