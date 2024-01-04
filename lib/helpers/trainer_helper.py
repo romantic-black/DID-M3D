@@ -75,7 +75,7 @@ class Trainer(object):
             self.logger.info(log_str)
 
             ei_loss = self.train_one_epoch(loss_weights)
-            self.record_val_loss()
+            # self.record_val_loss()
             self.epoch += 1
 
             # update learning rate

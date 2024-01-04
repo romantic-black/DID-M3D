@@ -112,10 +112,8 @@ class SampleDatabase:
     def __init__(self,
                  database_path,
                  idx_list=None,
-                 sample_num=30,
-                 x_range=(-15., 15.),
-                 z_range=(25., 65.),
-                 random_flip=0.):
+                 config=None,
+                 ):
         self.database_path = pathlib.Path(database_path)
         assert self.database_path.exists()
         self.image_path = self.database_path / "image"
@@ -128,19 +126,16 @@ class SampleDatabase:
         with open(self.database_path / "sample_depth_dense_database_with_flip.pkl", "rb") as f:
             self.sample_depth_database = pickle.load(f)
 
+        self.config = config
         if idx_list is not None:
             database = database[database['idx'].isin(idx_list)]
-        self.database = database
+        database_num = config["database_num"]
+        self.sample_num = config["sample_num"]
+        self.database = database.sample(n=database_num) if database_num != -1 else database
         self.z2y = database['z/y'].to_numpy()
         self.x2z = database['x/z'].to_numpy()
         self.z = database['z'].to_numpy()
         self.h = database['h'].to_numpy()
-
-        self.sample_num = sample_num
-        self.x_range = x_range
-        self.z_range = z_range
-        self.random_flip = random_flip
-
         self.pointer = len(database)
         self.indices = None
 
@@ -235,7 +230,7 @@ class SampleDatabase:
     def sample_xyz(self, plane_=None, samples=None, xyz_=None):
         if samples is not None and xyz_ is not None:
             assert len(samples) == xyz_.shape[0]
-        sample_num = int(self.sample_num) if samples is None else len(samples)
+        sample_num = 40 if samples is None else len(samples)
         sample_num = sample_num if xyz_ is None else xyz_.shape[0]
         if samples is None:
             samples = self.samples_from_database(sample_num)
@@ -300,7 +295,7 @@ class SampleDatabase:
 
         xyz_ = np.vstack((x_, y_, z_)).T
 
-        samples, xyz_ = self.samples_with_range(xyz_)
+        samples, xyz_ = self.samples_with_range(xyz_, **self.config["sample_constraint"])
         return samples, xyz_, scene_type
 
     @staticmethod
@@ -334,7 +329,7 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=10):
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
             ues_plane_filter = True
@@ -371,7 +366,7 @@ class SampleDatabase:
 
         # 合并筛除结果
         valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
-        valid = np.random.choice(valid, min(max_num, len(valid)), replace=False)
+        valid = np.random.choice(valid, min(self.sample_num, len(valid)), replace=False)
         res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
         return res
 

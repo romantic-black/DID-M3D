@@ -62,16 +62,14 @@ class KITTI(data.Dataset):
         self.depth_dir = os.path.join(self.data_dir, 'depth')
         self.calib_dir = os.path.join(self.data_dir, 'calib')
         self.label_dir = os.path.join(self.data_dir, 'label_2')
-        self.database_dir = os.path.join(root_dir, 'kitti_drx_database')
 
         self.dataset = Dataset(split, root_dir)
-        self.database = SampleDatabase(self.database_dir, self.idx_list)
-
+        self.database = SampleDatabase(cfg["database_dir"], self.idx_list, cfg["random_sample"])
         # data augmentation configuration
         self.data_augmentation = True if split in ['train', 'trainval'] else False
         self.random_flip = cfg['random_flip']
         self.random_crop = cfg['random_crop']
-        self.random_sample = cfg['random_sample']
+        self.random_sample = cfg['random_sample']['prob']
         self.scale = cfg['scale']
         self.shift = cfg['shift']
 
