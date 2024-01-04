@@ -150,7 +150,7 @@ class SampleDatabase:
         bbox2d_mid = (bbox2d[0] + bbox2d[2]) / 2
         alpha = calib.ry2alpha(ry, bbox2d_mid)
         uv_, _ = calib_.rect_to_img(xyz_.reshape(1, -1))
-        bbox2d_mid_ = uv_[:, 0] + bbox2d_mid - uv[:, 0]
+        bbox2d_mid_ = uv_[:, 0] + bbox2d_mid * xyz_[2] / xyz[2] - uv[:, 0]
         ry_ = calib_.alpha2ry(alpha, bbox2d_mid_)
         return ry_
 
@@ -337,18 +337,16 @@ class SampleDatabase:
     def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, max_num=10):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
-            radius = 3
             ues_plane_filter = True
         else:
             samples, xyz_, scene_type = self.sample_from_grid(grid)
-            radius = {'a': 4, 'b': 3, 'c': 2, 'd': 1}[scene_type]
 
         samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_)
 
         flag1 = np.ones((bbox3d_.shape[0]), dtype=bool)
         # 判断样本是否在地面上，第一次筛除
         if ues_plane_filter:
-            bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=radius, min_num=10, max_degree=15)
+            bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=3, min_num=10, max_degree=15)
 
         if flag1.sum() == 0:
             return []
