@@ -8,6 +8,9 @@ sys.path.append(ROOT_DIR)
 import yaml
 import logging
 import argparse
+import torch
+import random
+import numpy as np
 
 from lib.helpers.dataloader_helper import build_dataloader
 from lib.helpers.model_helper import build_model
@@ -32,10 +35,21 @@ def create_logger(log_file):
     logging.getLogger(__name__).addHandler(console)
     return logging.getLogger(__name__)
 
+def seed_torch(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)    # 为了禁止hash随机化，使得实验可复现
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)        # if you are using multi-GPU.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
 
 def main():
     # load cfg
     assert (os.path.exists(args.config))
+    seed_torch(666)
     cfg = yaml.load(open(args.config, 'r'), Loader=yaml.Loader)
     os.makedirs(cfg['trainer']['log_dir'], exist_ok=True)
     logger = create_logger(os.path.join(cfg['trainer']['log_dir'], 'train.log'))
