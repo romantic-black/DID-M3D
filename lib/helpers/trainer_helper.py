@@ -5,12 +5,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pdb
+import datetime
 from lib.helpers.save_helper import get_checkpoint_state
 from lib.helpers.save_helper import save_checkpoint
 from lib.helpers.save_helper import load_checkpoint
 from lib.losses.loss_function import DIDLoss, Hierarchical_Task_Learning
 from lib.helpers.decode_helper import extract_dets_from_outputs
 from lib.helpers.decode_helper import decode_detections
+from torch.utils.tensorboard import SummaryWriter
 
 from tools import eval
 
@@ -39,6 +41,8 @@ class Trainer(object):
         self.class_name = test_loader.dataset.class_name
         self.label_dir = cfg['dataset']['label_dir']
         self.eval_cls = cfg['dataset']['eval_cls']
+        self.writer = SummaryWriter(log_dir=os.path.join(self.cfg_train['log_dir'],
+                                                         datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 
         if self.cfg_train.get('resume_model', None):
             assert os.path.exists(self.cfg_train['resume_model'])
@@ -71,6 +75,7 @@ class Trainer(object):
             self.logger.info(log_str)
 
             ei_loss = self.train_one_epoch(loss_weights)
+            self.record_val_loss()
             self.epoch += 1
 
             # update learning rate
@@ -178,10 +183,45 @@ class Trainer(object):
                     log_str += ' %s:%.4f,' % (key, disp_dict[key])
                     disp_dict[key] = 0  # reset statistics
                 self.logger.info(log_str)
-
         for key in stat_dict.keys():
             stat_dict[key] /= trained_batch
+            self.writer.add_scalar(f'train/{key}', stat_dict[key], self.epoch)
 
+        return stat_dict
+
+    def record_val_loss(self):
+
+        self.model.eval()
+        stat_dict = {}
+        progress_bar = tqdm.tqdm(total=len(self.test_loader), leave=True, desc='Val Progress')
+        with torch.no_grad():
+            for batch_idx, (inputs, calibs, coord_ranges, targets, info) in enumerate(self.test_loader):
+                # load evaluation data and move data to current device.
+                if type(inputs) != dict:
+                    inputs = inputs.to(self.device)
+                else:
+                    for key in inputs.keys(): inputs[key] = inputs[key].to(self.device)
+                calibs = calibs.to(self.device)
+                coord_ranges = coord_ranges.to(self.device)
+                for key in targets.keys(): targets[key] = targets[key].to(self.device)
+                # the outputs of centernet
+                criterion = DIDLoss(self.epoch)
+                outputs = self.model(inputs, coord_ranges, calibs, targets, K=50)
+                total_loss, loss_terms = criterion(outputs, targets)
+                for key in loss_terms.keys():
+                    if key not in stat_dict.keys():
+                        stat_dict[key] = 0
+
+                    if isinstance(loss_terms[key], int):
+                        stat_dict[key] += (loss_terms[key])
+                    else:
+                        stat_dict[key] += (loss_terms[key]).detach()
+                trained_batch = batch_idx + 1
+                progress_bar.update()
+            progress_bar.close()
+            for key in stat_dict.keys():
+                stat_dict[key] /= trained_batch
+                self.writer.add_scalar(f'val/{key}', stat_dict[key], self.epoch)
         return stat_dict
 
     def eval_one_epoch(self):

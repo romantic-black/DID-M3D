@@ -49,7 +49,7 @@ def show_o3d(cord, rgb=None, bbox3d=None):
         if rgb is not None:
             pcd.colors = o3d.utility.Vector3dVector(rgb / 256.)
         else:
-            pcd.colors = o3d.utility.Vector3dVector(np.array([[0, 0, 0]]) / 256.)
+            pcd.colors = o3d.utility.Vector3dVector(np.array([[0, 255, 0]]) / 256.)
     else:
         rgbs = []
         for i in range(len(cord)):
@@ -70,6 +70,12 @@ def show_o3d(cord, rgb=None, bbox3d=None):
         for corner in corners:
             line_set = draw_3d_box(corner)
             vis.add_geometry(line_set)
+    # circle_mesh = o3d.geometry.TriangleMesh.create_cylinder(3, height=0.01, resolution=100, split=1)
+    # R = circle_mesh.get_rotation_matrix_from_xyz((np.pi / 2, 0, 0))  # 绕x轴旋转90度
+    # circle_mesh.rotate(R, center=(0, 0, 0))
+    # circle_mesh.translate(bbox3d[0:3])
+    # circle_mesh.paint_uniform_color([0, 0, 1])
+    # vis.add_geometry(circle_mesh)
 
     vis.run()
     vis.destroy_window()
