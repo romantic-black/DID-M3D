@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-from abstract_weighting import AbsWeighting
+from aug.weight.abstract_weighting import AbsWeighting
 
 
 class MGDA(AbsWeighting):

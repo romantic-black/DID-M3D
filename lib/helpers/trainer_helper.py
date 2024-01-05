@@ -48,7 +48,7 @@ class Trainer(object):
         self.mgda = MGDA(["heatmap", "offset_2d", "size_2d",    # 名称不重要，数量对就行
                           "offset_3d", "size_3d", "heading", "vis_depth",
                           "att_depth", "vis_depth_uncer", "att_depth_uncer",],
-                         self.model.backbone, self.model.neck)
+                         self.model.backbone, self.model.feat_up)
 
         if self.cfg_train.get('resume_model', None):
             assert os.path.exists(self.cfg_train['resume_model'])
