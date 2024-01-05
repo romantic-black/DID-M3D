@@ -9,7 +9,7 @@ from aug.iou3d_nms.iou3d_nms_utils import boxes_aligned_iou3d_gpu
 
 
 class Hierarchical_Task_Learning:
-    def __init__(self, epoch0_loss, stat_epoch_nums=5):
+    def __init__(self, epoch0_loss, stat_epoch_nums=5, max_epoch=-1):
         self.index2term = [*epoch0_loss.keys()]
         self.term2index = {term: self.index2term.index(term) for term in self.index2term}  # term2index
         self.stat_epoch_nums = stat_epoch_nums
@@ -22,12 +22,15 @@ class Hierarchical_Task_Learning:
                            'heading_loss': ['size2d_loss', 'offset2d_loss'],
                            'depth_loss': ['size2d_loss', 'size3d_loss', 'offset2d_loss'],
                            }
+        self.max_epoch = max_epoch
 
-    def compute_weight(self, current_loss, epoch):
+    def compute_weight(self, current_loss, epoch,):
         T = 140
         # compute initial weights
         loss_weights = {}
         eval_loss_input = torch.cat([_.unsqueeze(0) for _ in current_loss.values()]).unsqueeze(0)  # [1, 7]
+        if epoch >= self.max_epoch != -1:
+            return None
         for term in self.loss_graph:
             if len(self.loss_graph[term]) == 0:  # 若没有前置任务
                 loss_weights[term] = torch.tensor(1.0).to(current_loss[term].device)  # 权重为 1

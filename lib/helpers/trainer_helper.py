@@ -13,6 +13,7 @@ from lib.losses.loss_function import DIDLoss, Hierarchical_Task_Learning
 from lib.helpers.decode_helper import extract_dets_from_outputs
 from lib.helpers.decode_helper import decode_detections
 from torch.utils.tensorboard import SummaryWriter
+from aug.weight.MGDA import MGDA
 
 from tools import eval
 
@@ -44,6 +45,11 @@ class Trainer(object):
         self.writer = SummaryWriter(log_dir=os.path.join(self.cfg_train['log_dir'],
                                                          datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 
+        self.mgda = MGDA(["heatmap", "offset_2d", "size_2d",    # 名称不重要，数量对就行
+                          "offset_3d", "size_3d", "heading", "vis_depth",
+                          "att_depth", "vis_depth_uncer", "att_depth_uncer",],
+                         self.model.backbone, self.model.neck)
+
         if self.cfg_train.get('resume_model', None):
             assert os.path.exists(self.cfg_train['resume_model'])
             self.epoch = load_checkpoint(self.model, self.optimizer, self.cfg_train['resume_model'], self.logger,
@@ -55,7 +61,7 @@ class Trainer(object):
     def train(self):
         start_epoch = self.epoch
         ei_loss = self.compute_e0_loss()
-        loss_weightor = Hierarchical_Task_Learning(ei_loss)
+        loss_weightor = Hierarchical_Task_Learning(ei_loss, self.cfg_train["HTL_stop"])
         for epoch in range(start_epoch, self.cfg_train['max_epoch']):
             # train one epoch
             self.logger.info('------ TRAIN EPOCH %03d ------' % (epoch + 1))
@@ -153,7 +159,10 @@ class Trainer(object):
                 total_loss = torch.zeros(1).cuda()
                 for key in loss_weights.keys():
                     total_loss += loss_weights[key].detach() * loss_terms[key]
-            total_loss.backward()
+                total_loss.backward()
+            else:
+                sol = self.mgda.backward(list(loss_terms.values()), mgda_gn='loss+')
+
             self.optimizer.step()
 
             trained_batch = batch_idx + 1
