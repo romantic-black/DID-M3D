@@ -7,10 +7,9 @@ from itertools import chain
 class AbsWeighting(nn.Module):
     r"""An abstract class for weighting strategies.
     """
-    def __init__(self, task_name, backbone, neck, device):
+    def __init__(self, task_num, backbone, neck, device):
         super(AbsWeighting, self).__init__()
-        self.task_name = task_name
-        self.task_num = len(task_name)
+        self.task_num = task_num
         self.backbone = backbone
         self.neck = neck
         self.rep_grad = False

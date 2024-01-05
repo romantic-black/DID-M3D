@@ -45,9 +45,7 @@ class Trainer(object):
         self.writer = SummaryWriter(log_dir=os.path.join(self.cfg_train['log_dir'],
                                                          datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 
-        self.mgda = MGDA(["offset2d_loss", "size2d_loss", "offset3d_loss",    # 名称不重要，数量对就行
-                          "size3d_loss", "seg_loss", "heading_loss", "depth_loss"],
-                         self.model.backbone, self.model.feat_up, self.device)
+        self.mgda = MGDA(3, self.model.backbone, self.model.feat_up, self.device)
 
         if self.cfg_train.get('resume_model', None):
             assert os.path.exists(self.cfg_train['resume_model'])
@@ -161,7 +159,16 @@ class Trainer(object):
                     total_loss += loss_weights[key].detach() * loss_terms[key]
                 total_loss.backward()
             else:
-                sol = self.mgda.backward(list(loss_terms.values()), mgda_gn='loss+')
+                loss_list = []
+                loss_list.append(loss_terms['depth_loss'])
+                loss_list.append(loss_terms['seg_loss'])
+                loss_list.append(loss_terms['offset2d_loss']
+                                 + loss_terms['size2d_loss']
+                                 + loss_terms['offset3d_loss']
+                                 + loss_terms['size3d_loss']
+                                 + loss_terms['heading_loss'])
+
+                sol = self.mgda.backward(loss_list, mgda_gn='loss+')
 
             self.optimizer.step()
 

@@ -16,8 +16,8 @@ class MGDA(AbsWeighting):
         mgda_gn ({'none', 'l2', 'loss', 'loss+'}, default='none'): The type of gradient normalization.
 
     """
-    def __init__(self, task_name, backbone, neck, device):
-        super(MGDA, self).__init__(task_name, backbone, neck, device)
+    def __init__(self, task_num, backbone, neck, device):
+        super(MGDA, self).__init__(task_num, backbone, neck, device)
     
     def _find_min_norm_element(self, grads):
 
