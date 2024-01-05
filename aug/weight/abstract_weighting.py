@@ -7,13 +7,14 @@ from itertools import chain
 class AbsWeighting(nn.Module):
     r"""An abstract class for weighting strategies.
     """
-    def __init__(self, task_name, backbone, neck):
+    def __init__(self, task_name, backbone, neck, device):
         super(AbsWeighting, self).__init__()
         self.task_name = task_name
         self.task_num = len(task_name)
         self.backbone = backbone
         self.neck = neck
         self.rep_grad = False
+        self.device = device
 
     def get_share_params(self):
         r"""Return the shared parameters of the model.

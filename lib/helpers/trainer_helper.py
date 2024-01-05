@@ -45,10 +45,9 @@ class Trainer(object):
         self.writer = SummaryWriter(log_dir=os.path.join(self.cfg_train['log_dir'],
                                                          datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 
-        self.mgda = MGDA(["heatmap", "offset_2d", "size_2d",    # 名称不重要，数量对就行
-                          "offset_3d", "size_3d", "heading", "vis_depth",
-                          "att_depth", "vis_depth_uncer", "att_depth_uncer",],
-                         self.model.backbone, self.model.feat_up)
+        self.mgda = MGDA(["offset2d_loss", "size2d_loss", "offset3d_loss",    # 名称不重要，数量对就行
+                          "size3d_loss", "seg_loss", "heading_loss", "depth_loss"],
+                         self.model.backbone, self.model.feat_up, self.device)
 
         if self.cfg_train.get('resume_model', None):
             assert os.path.exists(self.cfg_train['resume_model'])
@@ -60,8 +59,8 @@ class Trainer(object):
 
     def train(self):
         start_epoch = self.epoch
-        ei_loss = self.compute_e0_loss()
-        loss_weightor = Hierarchical_Task_Learning(ei_loss, self.cfg_train["HTL_stop"])
+        #ei_loss = self.compute_e0_loss()
+        #loss_weightor = Hierarchical_Task_Learning(ei_loss, self.cfg_train["HTL_stop"])
         for epoch in range(start_epoch, self.cfg_train['max_epoch']):
             # train one epoch
             self.logger.info('------ TRAIN EPOCH %03d ------' % (epoch + 1))
@@ -73,14 +72,14 @@ class Trainer(object):
             # reset numpy seed.
             # ref: https://github.com/pytorch/pytorch/issues/5059
             np.random.seed(np.random.get_state()[1][0] + epoch)
-            loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
+            #loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
 
             log_str = 'Weights: '
-            for key in sorted(loss_weights.keys()):
-                log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
-            self.logger.info(log_str)
+            # for key in sorted(loss_weights.keys()):
+            #     log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
+            # self.logger.info(log_str)
 
-            ei_loss = self.train_one_epoch(loss_weights)
+            ei_loss = self.train_one_epoch()#loss_weights)
             # self.record_val_loss()
             self.epoch += 1
 
@@ -140,6 +139,7 @@ class Trainer(object):
 
         disp_dict = {}
         stat_dict = {}
+        progress_bar = tqdm.tqdm(total=len(self.train_loader), leave=True)
         for batch_idx, (inputs, calibs, coord_ranges, targets, info) in enumerate(self.train_loader):
             if type(inputs) != dict:
                 inputs = inputs.to(self.device)
@@ -192,6 +192,8 @@ class Trainer(object):
                     log_str += ' %s:%.4f,' % (key, disp_dict[key])
                     disp_dict[key] = 0  # reset statistics
                 self.logger.info(log_str)
+            progress_bar.update()
+        progress_bar.close()
         for key in stat_dict.keys():
             stat_dict[key] /= trained_batch
             self.writer.add_scalar(f'train/{key}', stat_dict[key], self.epoch)
