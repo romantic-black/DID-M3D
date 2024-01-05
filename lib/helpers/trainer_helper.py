@@ -73,9 +73,10 @@ class Trainer(object):
             loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
 
             log_str = 'Weights: '
-            for key in sorted(loss_weights.keys()):
-                log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
-            self.logger.info(log_str)
+            if loss_weights is not None:
+                for key in sorted(loss_weights.keys()):
+                    log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
+                self.logger.info(log_str)
 
             ei_loss = self.train_one_epoch(loss_weights)
             # self.record_val_loss()
