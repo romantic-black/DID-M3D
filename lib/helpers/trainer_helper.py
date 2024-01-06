@@ -46,7 +46,7 @@ class Trainer(object):
                                                          datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')))
 
         self.mgda = MGDA(3, self.model.backbone, self.model.feat_up, self.device)
-
+        self.use_mgda = cfg['trainer']['use_mgda']
         if self.cfg_train.get('resume_model', None):
             assert os.path.exists(self.cfg_train['resume_model'])
             self.epoch = load_checkpoint(self.model, self.optimizer, self.cfg_train['resume_model'], self.logger,
@@ -154,12 +154,12 @@ class Trainer(object):
 
             total_loss, loss_terms = criterion(outputs, targets)
 
+            total_loss = torch.zeros(1).cuda()
             if loss_weights is not None:
-                total_loss = torch.zeros(1).cuda()
                 for key in loss_weights.keys():
                     total_loss += loss_weights[key].detach() * loss_terms[key]
                 total_loss.backward()
-            else:
+            elif self.use_mgda:
                 loss_list = []
                 loss_list.append(loss_terms['depth_loss'])
                 loss_list.append(loss_terms['seg_loss'])
@@ -170,7 +170,10 @@ class Trainer(object):
                                  + loss_terms['heading_loss'])
 
                 sol = self.mgda.backward(loss_list, mgda_gn='loss+')
-
+            else:
+                for key in loss_terms.keys():
+                    total_loss += loss_terms[key]
+                total_loss.backward()
             self.optimizer.step()
 
             trained_batch = batch_idx + 1
