@@ -7,6 +7,7 @@ import cv2
 import pandas as pd
 import pickle
 from lib.datasets.kitti_utils import Calibration
+from copy import deepcopy
 from tools.dataset_util import Dataset
 from sklearn.decomposition import PCA
 from tools.box_util import boxes_bev_iou_cpu, rect2lidar, check_points_in_boxes3d, bbox3d_to_corners_3d
@@ -418,14 +419,14 @@ class Sample:
         self.bbox3d_ = bbox3d
         self.database = database
 
-        self.label = sample['label']
-        self.calib = sample['calib']
-        self.alpha_ = sample['label'].alpha
+        self.label = deepcopy(sample['label'])
+        self.calib = deepcopy(sample['calib'])
+        self.alpha_ = self.label.alpha
         self.calib_ = calib
-        self.plane = sample['plane']
-        self.bbox2d = sample['bbox2d']
+        self.plane = deepcopy(sample['plane'])
+        self.bbox2d = deepcopy(sample['bbox2d'])
         self.name = sample['name']
-        self.image_shape = sample['image_shape']
+        self.image_shape = deepcopy(sample['image_shape'])
 
         self.flipped = sample['flipped']
         self.image = self.get_image()
