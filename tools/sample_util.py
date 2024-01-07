@@ -422,7 +422,7 @@ class Sample:
         self.label = deepcopy(sample['label'])
         self.calib = deepcopy(sample['calib'])
         self.alpha_ = self.label.alpha
-        self.calib_ = calib
+        self.calib_ = deepcopy(calib)
         self.plane = deepcopy(sample['plane'])
         self.bbox2d = deepcopy(sample['bbox2d'])
         self.name = sample['name']
