@@ -102,8 +102,8 @@ def to2d(cord, rgb, calib, image_shape):
 
     depth = (depth * 256).astype(np.uint16)
     mask = ((eroded == 255) & (thresh == 0)).astype(np.uint8)
-    #image = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
-    #depth = cv2.inpaint(depth, mask, 3, cv2.INPAINT_NS)
+    # image = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
+    # depth = cv2.inpaint(depth, mask, 3, cv2.INPAINT_NS)
     depth = depth.astype(np.float32) / 256.0
 
     return image, depth, [u_min, v_min, u_max, v_max]
@@ -137,21 +137,20 @@ class SampleDatabase:
                 'max_dz': 10,
                 'max_rate': 1.2,
                 'min_rate': 0.5,
-            }
+            },
+            'position_sample_num': 40
         }
 
         self.config = {**default_config, **(config if config is not None else {})}
         if idx_list is not None:
             database = database[database['idx'].isin(idx_list)]
         database_num = self.config["database_num"]
-        self.sample_num = self.config["sample_num"]
         self.database = database.sample(n=database_num) if database_num != -1 else database
-        self.z2y = database['z/y'].to_numpy()
-        self.x2z = database['x/z'].to_numpy()
-        self.z = database['z'].to_numpy()
-        self.h = database['h'].to_numpy()
         self.pointer = len(database)
         self.indices = None
+        self.position_sample_num = self.config["position_sample_num"]
+        self.sample_num = self.config["sample_num"]
+
 
     @staticmethod
     def get_ry_(alpha, xyz_, calib_):
@@ -166,40 +165,52 @@ class SampleDatabase:
         y /= b
         return y
 
-    @staticmethod
-    def flip_sample(sample):
-        # 没考虑深拷贝，所以有很大问题
-        calib = sample['calib']
-        h, w = sample['image_shape']
-        calib.flip([w, h])
-        u_min, _, u_max, _ = sample['bbox2d']
-        sample['bbox2d'][0], sample['bbox2d'][2] = w - u_max, w - u_min
-        ry = np.pi - sample['label'].ry
-        if ry > np.pi: ry -= 2 * np.pi
-        if ry < -np.pi: ry += 2 * np.pi
-        sample['label'].ry = ry
-        sample['label'].pos[0] *= -1
-        sample['label'].alpha = calib.ry2alpha(ry, w - (u_max + u_min) / 2)
-        sample['plane'][0] *= -1
-        sample['flipped'] = True
-
     def samples_with_range(self, xyz_, max_z2y=0.5, max_x2z=10, max_dz=10, max_rate=1.2, min_rate=0.5):
-        df, z2y, x2z, z, h = self.database, self.z2y, self.x2z, self.z, self.h
-        x2z_ = np.arctan2(xyz_[:, 0], xyz_[:, 2]) * 180 / np.pi
-        z_ = xyz_[:, 2]
+        n = xyz_.shape[0]
+        xyz_ = xyz_[np.newaxis, :]  # (1, n, 3)
+        assert n <= self.position_sample_num
+        df_ = self.database.sample(frac=0.1)
+
+        def func(x):
+            x = df_[x].to_numpy()
+            x = np.repeat(x[:, np.newaxis], n, axis=1)
+            return x
+
+        z2y = func('z/y')
+        x2z = func('x/z')
+        z = func('z')
+        h = func('h')
+
+        x2z_ = np.arctan2(xyz_[:, :, 0], xyz_[:, :, 2]) * 180 / np.pi # (1, n)
+        z_ = xyz_[:, :, 2]
         samples = []
         xyz_list = []
-        for i in range(xyz_.shape[0]):
-            z2y_ = np.arctan2(xyz_[i, 2], xyz_[i, 1] - h / 2) * 180 / np.pi
-            condition = ((z2y < max_z2y + z2y_) & (z2y >  - max_z2y + z2y_) &
-                        (x2z < max_x2z + x2z_[i]) & (x2z > - max_x2z + x2z_[i]) &
-                        (z < max_dz + z_[i]) & (z > - max_dz + z_[i]) &
-                        (z / z_[i] < max_rate) & (z / z_[i] > min_rate))
+        # for i in range(xyz_.shape[0]):
+        #     z2y_ = np.arctan2(xyz_[i, 2], xyz_[i, 1] - h / 2) * 180 / np.pi
+        #     condition = ((z2y < max_z2y + z2y_) & (z2y > - max_z2y + z2y_) &
+        #                  (x2z < max_x2z + x2z_[i]) & (x2z > - max_x2z + x2z_[i]) &
+        #                  (z < max_dz + z_[i]) & (z > - max_dz + z_[i]) &
+        #                  (z / z_[i] < max_rate) & (z / z_[i] > min_rate))
+        #
+        #     df_ = df[condition]
+        #     if len(df_) == 0:
+        #         continue
+        #     sample = df_.sample(n=1).iloc[0]
+        #     samples.append(sample)
+        #     xyz_list.append(xyz_[i])
 
-            df_ = df[condition]
-            if len(df_) == 0:
+        z2y_ = np.arctan2(xyz_[:, :, 2], xyz_[:, :, 1] - h / 2) * 180 / np.pi
+        condition = ((np.abs(z2y - z2y_) < max_z2y) &
+                     (np.abs(x2z - x2z_) < max_x2z) &
+                     (np.abs(z - z_) < max_dz) &
+                     (z / z_ < max_rate) & (z / z_ > min_rate))
+
+        indexes = [np.where(condition[:, col])[0] for col in range(n)]
+        xyz_ = xyz_[0]  # (n, 3)
+        for i, index in enumerate(indexes):
+            if index.shape[0] == 0:
                 continue
-            sample = df_.sample(n=1).iloc[0]
+            sample = df_.iloc[np.random.choice(index)]
             samples.append(sample)
             xyz_list.append(xyz_[i])
 
@@ -240,7 +251,7 @@ class SampleDatabase:
     def sample_xyz(self, plane_=None, samples=None, xyz_=None):
         if samples is not None and xyz_ is not None:
             assert len(samples) == xyz_.shape[0]
-        sample_num = 40 if samples is None else len(samples)
+        sample_num = self.position_sample_num if samples is None else len(samples)
         sample_num = sample_num if xyz_ is None else xyz_.shape[0]
         if samples is None:
             samples = self.samples_from_database(sample_num)
@@ -344,7 +355,7 @@ class SampleDatabase:
             samples, xyz_ = self.sample_xyz(plane_)
             ues_plane_filter = True
         else:
-            samples, xyz_, scene_type = self.sample_from_grid(grid)
+            samples, xyz_, scene_type = self.sample_from_grid(grid, max_sample_num=self.position_sample_num)
 
         samples, bbox3d_ = self.xyz_to_bbox3d(samples, xyz_, calib_)
 
