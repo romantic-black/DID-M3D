@@ -127,11 +127,11 @@ class SampleDatabase:
         with open(self.database_path / "sample_depth_dense_database_with_flip.pkl", "rb") as f:
             self.sample_depth_database = pickle.load(f)
 
-        self.config = config if config is not None else {
+        default_config = {
             "prob": 0.5,
             "database_num": -1,
             'sample_num': 10,
-            'sample_constraint':{
+            'sample_constraint': {
                 "max_z2y": 0.5,
                 'max_x2z': 10,
                 'max_dz': 10,
@@ -139,6 +139,8 @@ class SampleDatabase:
                 'min_rate': 0.5,
             }
         }
+
+        self.config = {**default_config, **(config if config is not None else {})}
         if idx_list is not None:
             database = database[database['idx'].isin(idx_list)]
         database_num = self.config["database_num"]
@@ -152,13 +154,9 @@ class SampleDatabase:
         self.indices = None
 
     @staticmethod
-    def get_ry_(ry, xyz, calib, bbox2d, xyz_, calib_):
-        uv, _ = calib.rect_to_img(xyz.reshape(1, -1))
-        bbox2d_mid = (bbox2d[0] + bbox2d[2]) / 2
-        alpha = calib.ry2alpha(ry, bbox2d_mid)
+    def get_ry_(alpha, xyz_, calib_):
         uv_, _ = calib_.rect_to_img(xyz_.reshape(1, -1))
-        bbox2d_mid_ = uv_[:, 0] + bbox2d_mid * xyz_[2] / xyz[2] - uv[:, 0]
-        ry_ = calib_.alpha2ry(alpha, bbox2d_mid_)
+        ry_ = calib_.alpha2ry(alpha, uv_[:, 0])
         return ry_
 
     @staticmethod
@@ -212,9 +210,9 @@ class SampleDatabase:
         if pointer >= len(database):
             indices = np.random.permutation(len(database))
             pointer = 0
-        samples = [database[idx] for idx in indices[pointer: pointer + num]]
+        samples = [database.iloc[idx] for idx in indices[pointer: pointer + num]]
         if len(samples) < num:
-            samples += [database[idx] for idx in indices[: num - len(samples)]]
+            samples += [database.iloc[idx] for idx in indices[: num - len(samples)]]
 
         pointer += len(samples)
         self.pointer = pointer
@@ -234,7 +232,7 @@ class SampleDatabase:
         lhw = np.array([[s['label'].l, s['label'].h, s['label'].w] for s in samples])
 
         # 采样 bbox3d
-        ry_ = np.array([self.get_ry_(ry[i], xyz[i], calib[i], bbox2d[i], xyz_[i], calib_) for i in range(sample_num)])
+        ry_ = np.array([self.get_ry_(alpha[i], xyz_[i], calib_) for i in range(sample_num)])
         bbox3d_ = np.concatenate([xyz_, lhw, ry_], axis=1)
 
         return samples, bbox3d_
@@ -658,7 +656,7 @@ import datetime
 
 if __name__ == '__main__':
     test_dir = Path("/mnt/e/DataSet/kitti/kitti_drx_database/test")
-    np.random.seed(0)
+    np.random.seed(2)
 
     database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_drx_database/")
     dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
@@ -680,9 +678,9 @@ if __name__ == '__main__':
         labels = merge_labels(labels, samples, calib_, image.shape)
         time2 = time.time()
 
-        for label in labels:
-            cv2.putText(image_, str(round(label.pos[-1], 2)), (int(label.box2d[0]), int(label.box2d[1])),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        # for label in labels:
+        #     cv2.putText(image_, str(round(label.pos[-1], 2)), (int(label.box2d[0]), int(label.box2d[1])),
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         mean_samples += len(samples)
         cv2.imwrite(str(test_dir / ('%06d.png' % idx)), image_)
         dt += time2 - time1

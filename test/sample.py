@@ -6,10 +6,10 @@ from tools.visualize_util import show_o3d
 
 class MyTestCase(unittest.TestCase):
     def test_ry(self):
-        np.random.seed(9)
+        np.random.seed(2)
         random.seed(1)
         random_flip = 0
-        database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_inst_database/", random_flip=random_flip)
+        database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_drx_database/")
         dataset = Dataset("train", r"/mnt/e/DataSet/kitti")
 
         idx = 2131
@@ -28,8 +28,8 @@ class MyTestCase(unittest.TestCase):
         y_ = np.zeros_like(x_) + sample['label'].pos[1]
         xyz_ = np.stack([x_, y_ , z_], axis=-1).reshape(-1, 3)
         samples = [sample for _ in range(xyz_.shape[0])]
-        samples, bbox3d_ = database.xyz_to_bbox3d(samples, xyz_, calib_, random_flip=random_flip)
-
+        samples, bbox3d_ = database.xyz_to_bbox3d(samples, xyz_, calib_)
+        print(samples[0]['flipped'])
         # bbox3d_, flag = database.sample_put_on_plane(bbox3d_, ground)
         #samples = [samples[i] for i in range(len(samples)) if flag[i]]
         #bbox3d_ = bbox3d_[flag]
