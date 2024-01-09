@@ -183,21 +183,6 @@ class SampleDatabase:
 
         x2z_ = np.arctan2(xyz_[:, :, 0], xyz_[:, :, 2]) * 180 / np.pi # (1, n)
         z_ = xyz_[:, :, 2]
-        samples = []
-        xyz_list = []
-        # for i in range(xyz_.shape[0]):
-        #     z2y_ = np.arctan2(xyz_[i, 2], xyz_[i, 1] - h / 2) * 180 / np.pi
-        #     condition = ((z2y < max_z2y + z2y_) & (z2y > - max_z2y + z2y_) &
-        #                  (x2z < max_x2z + x2z_[i]) & (x2z > - max_x2z + x2z_[i]) &
-        #                  (z < max_dz + z_[i]) & (z > - max_dz + z_[i]) &
-        #                  (z / z_[i] < max_rate) & (z / z_[i] > min_rate))
-        #
-        #     df_ = df[condition]
-        #     if len(df_) == 0:
-        #         continue
-        #     sample = df_.sample(n=1).iloc[0]
-        #     samples.append(sample)
-        #     xyz_list.append(xyz_[i])
 
         z2y_ = np.arctan2(xyz_[:, :, 2], xyz_[:, :, 1] - h / 2) * 180 / np.pi
         condition = ((np.abs(z2y - z2y_) < max_z2y) &
@@ -205,6 +190,8 @@ class SampleDatabase:
                      (np.abs(z - z_) < max_dz) &
                      (z / z_ < max_rate) & (z / z_ > min_rate))
 
+        samples = []
+        xyz_list = []
         indexes = [np.where(condition[:, col])[0] for col in range(n)]
         xyz_ = xyz_[0]  # (n, 3)
         for i, index in enumerate(indexes):

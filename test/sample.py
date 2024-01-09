@@ -6,7 +6,7 @@ from tools.visualize_util import show_o3d
 
 class MyTestCase(unittest.TestCase):
     def test_ry(self):
-        np.random.seed(2)
+        np.random.seed(1)
         random.seed(1)
         random_flip = 0
         database = SampleDatabase("/mnt/e/DataSet/kitti/kitti_drx_database/")
