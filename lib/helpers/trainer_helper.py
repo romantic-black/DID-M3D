@@ -79,7 +79,7 @@ class Trainer(object):
                 self.logger.info(log_str)
 
             ei_loss = self.train_one_epoch(loss_weights)
-            # self.record_val_loss()
+            self.record_val_loss()
             self.epoch += 1
 
             # update learning rate
@@ -172,6 +172,10 @@ class Trainer(object):
                 sol = self.mgda.backward(loss_list, mgda_gn='loss+')
             else:
                 for key in loss_terms.keys():
+                    if 120 > self.epoch >= 90:
+                        loss_terms['depth_loss'] = loss_terms['depth_loss'] * 10
+                    elif 150 > self.epoch >= 120:
+                        loss_terms['depth_loss'] = loss_terms['depth_loss'] * 100
                     total_loss += loss_terms[key]
                 total_loss.backward()
             self.optimizer.step()
