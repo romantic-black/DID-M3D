@@ -173,9 +173,9 @@ class Trainer(object):
             else:
                 for key in loss_terms.keys():
                     if 120 > self.epoch >= 90:
-                        loss_terms['depth_loss'] = loss_terms['depth_loss'] * 10
+                        loss_terms['depth_loss'] = loss_terms['depth_loss'] * 0.1
                     elif 150 > self.epoch >= 120:
-                        loss_terms['depth_loss'] = loss_terms['depth_loss'] * 100
+                        loss_terms['depth_loss'] = loss_terms['depth_loss'] * 0.01
                     total_loss += loss_terms[key]
                 total_loss.backward()
             self.optimizer.step()
