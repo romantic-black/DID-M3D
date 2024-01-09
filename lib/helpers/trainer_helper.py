@@ -57,8 +57,12 @@ class Trainer(object):
 
     def train(self):
         start_epoch = self.epoch
-        ei_loss = self.compute_e0_loss()
-        loss_weightor = Hierarchical_Task_Learning(ei_loss, max_epoch=self.cfg_train["HTL_stop"])
+        htl_stop_epoch = self.cfg_train["HTL_stop"]
+        if self.epoch < htl_stop_epoch or htl_stop_epoch == -1:
+            ei_loss = self.compute_e0_loss()
+            loss_weightor = Hierarchical_Task_Learning(ei_loss, max_epoch=self.cfg_train["HTL_stop"])
+        else:
+            loss_weightor = None
         for epoch in range(start_epoch, self.cfg_train['max_epoch']):
             # train one epoch
             self.logger.info('------ TRAIN EPOCH %03d ------' % (epoch + 1))
