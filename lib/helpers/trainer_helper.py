@@ -74,10 +74,10 @@ class Trainer(object):
             # reset numpy seed.
             # ref: https://github.com/pytorch/pytorch/issues/5059
             np.random.seed(np.random.get_state()[1][0] + epoch)
-            loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
-
-            log_str = 'Weights: '
             if loss_weights is not None:
+                loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
+
+                log_str = 'Weights: '
                 for key in sorted(loss_weights.keys()):
                     log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
                 self.logger.info(log_str)
