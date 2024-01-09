@@ -57,8 +57,12 @@ class Trainer(object):
 
     def train(self):
         start_epoch = self.epoch
-        ei_loss = self.compute_e0_loss()
-        loss_weightor = Hierarchical_Task_Learning(ei_loss, max_epoch=self.cfg_train["HTL_stop"])
+        htl_stop_epoch = self.cfg_train["HTL_stop"]
+        if self.epoch < htl_stop_epoch or htl_stop_epoch == -1:
+            ei_loss = self.compute_e0_loss()
+            loss_weightor = Hierarchical_Task_Learning(ei_loss, max_epoch=htl_stop_epoch)
+        else:
+            loss_weightor = None
         for epoch in range(start_epoch, self.cfg_train['max_epoch']):
             # train one epoch
             self.logger.info('------ TRAIN EPOCH %03d ------' % (epoch + 1))
@@ -70,13 +74,15 @@ class Trainer(object):
             # reset numpy seed.
             # ref: https://github.com/pytorch/pytorch/issues/5059
             np.random.seed(np.random.get_state()[1][0] + epoch)
-            loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
-
-            log_str = 'Weights: '
-            if loss_weights is not None:
-                for key in sorted(loss_weights.keys()):
-                    log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
-                self.logger.info(log_str)
+            if loss_weightor is not None:
+                loss_weights = loss_weightor.compute_weight(ei_loss, self.epoch)
+                if loss_weights is not None:
+                    log_str = 'Weights: '
+                    for key in sorted(loss_weights.keys()):
+                        log_str += ' %s:%.4f,' % (key[:-4], loss_weights[key])
+                    self.logger.info(log_str)
+            else:
+                loss_weights = None
 
             ei_loss = self.train_one_epoch(loss_weights)
             self.record_val_loss()
