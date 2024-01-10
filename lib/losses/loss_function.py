@@ -28,7 +28,7 @@ class Hierarchical_Task_Learning:
         T = 140
         # compute initial weights
         loss_weights = {}
-        eval_loss_input = torch.cat([_.unsqueeze(0) for _ in current_loss.values()]).unsqueeze(0)  # [1, 7]
+        eval_loss_input = torch.cat([_.unsqueeze(0) for _ in current_loss.values() if not isinstance(_, float)]).unsqueeze(0)  # [1, 7]
         if epoch >= self.max_epoch != -1:
             return None
         for term in self.loss_graph:
