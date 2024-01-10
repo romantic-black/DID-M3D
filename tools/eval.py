@@ -1311,7 +1311,7 @@ def get_coco_eval_result(gt_annos,
     }
 
 
-def eval_from_scrach(gt_dir, det_dir, eval_cls_list=None, ap_mode=40):
+def eval_from_scrach(gt_dir, det_dir, eval_cls_list=None, ap_mode=40, logger=None):
     global AP_mode
     AP_mode = ap_mode
 
@@ -1371,6 +1371,7 @@ def eval_from_scrach(gt_dir, det_dir, eval_cls_list=None, ap_mode=40):
 
     # print('------------------evalute model: {}--------------------'.format(det_dir.split('/')[-3]))
     print('------------------evalute model: {}--------------------'.format(det_dir.split('/')[-2]))
+    res_list = []
     for cls in eval_cls_list:
         print('*' * 20 + cls + '*' * 20)
         # all_gt: list(3769), each label is a dict
@@ -1380,11 +1381,14 @@ def eval_from_scrach(gt_dir, det_dir, eval_cls_list=None, ap_mode=40):
         # 'alpha': array([-1.57, -1.57, -1.57], dtype=float32),
         # 'occluded': array([0., 0., 0.], dtype=float32),
         # ...}
+
         res = get_official_eval_result(all_gt, all_det, cls, z_axis=1, z_center=1)
         Car_res = res['detail'][cls]
         for k in Car_res.keys():
             print(k, Car_res[k])
+        res_list.append(res)
     print('\n')
+    return res_list
 
 if __name__ == '__main__':
     eval_from_scrach(

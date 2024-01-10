@@ -178,15 +178,7 @@ class Trainer(object):
                 sol = self.mgda.backward(loss_list, mgda_gn='loss+')
             else:
                 for key in loss_terms.keys():
-                    if key == 'depth_loss':
-                        if 120 > self.epoch >= 90:
-                            total_loss += loss_terms['depth_loss'] * 0.1
-                        elif 150 > self.epoch >= 120:
-                            total_loss += loss_terms['depth_loss'] * 0.01
-                        else:
-                            total_loss += loss_terms['depth_loss']
-                    else:
-                        total_loss += loss_terms[key]
+                    total_loss += loss_terms[key]
                 total_loss.backward()
             self.optimizer.step()
 
@@ -201,6 +193,12 @@ class Trainer(object):
                     stat_dict[key] += (loss_terms[key])
                 else:
                     stat_dict[key] += (loss_terms[key]).detach()
+
+            if stat_dict.get('real_depth_loss', None) is None:
+                stat_dict['real_depth_loss'] = 0
+            else:
+                stat_dict['real_depth_loss'] += criterion.disp['real_depth_loss']
+
             for key in loss_terms.keys():
                 if key not in disp_dict.keys():
                     disp_dict[key] = 0
@@ -252,6 +250,11 @@ class Trainer(object):
                         stat_dict[key] += (loss_terms[key])
                     else:
                         stat_dict[key] += (loss_terms[key]).detach()
+
+                if stat_dict.get('real_depth_loss', None) is None:
+                    stat_dict['real_depth_loss'] = 0
+                else:
+                    stat_dict['real_depth_loss'] += criterion.disp['real_depth_loss']
                 trained_batch = batch_idx + 1
                 progress_bar.update()
             progress_bar.close()
@@ -297,11 +300,15 @@ class Trainer(object):
         # self.save_results(results)
         out_dir = os.path.join(self.cfg_train['out_dir'], 'EPOCH_' + str(self.epoch))
         self.save_results(results, out_dir)
-        eval.eval_from_scrach(
+        res_list = eval.eval_from_scrach(
             self.label_dir,
             os.path.join(out_dir, 'data'),
             self.eval_cls,
             ap_mode=40)
+        res = res_list[0]['detail']['Car']
+        for key in res:
+            for i in ["Easy", "Moderate", "Hard"]:
+                self.writer.add_scalar(f'eval/{key}_{i}', res[key][i], self.epoch)
 
     def save_results(self, results, output_dir='./outputs'):
         output_dir = os.path.join(output_dir, 'data')

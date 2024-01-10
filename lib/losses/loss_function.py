@@ -69,6 +69,7 @@ class DIDLoss(nn.Module):
     def __init__(self, epoch):
         super().__init__()
         self.stat = {}
+        self.disp = {}
         self.epoch = epoch
 
     def forward(self, preds, targets):
@@ -82,6 +83,8 @@ class DIDLoss(nn.Module):
             self.stat['offset3d_loss'] = 0
             self.stat['size3d_loss'] = 0
             self.stat['heading_loss'] = 0
+
+            self.disp['real_depth_loss'] = 0
         else:
             bbox2d_loss = self.compute_bbox2d_loss(preds, targets)
             bbox3d_loss = self.compute_bbox3d_loss(preds, targets)
@@ -136,6 +139,15 @@ class DIDLoss(nn.Module):
         ins_depth_loss = laplacian_aleatoric_uncertainty_loss(ins_depth.view(-1, 7 * 7),
                                                               ins_depth_target.repeat(1, 7 * 7),
                                                               ins_depth_uncer.view(-1, 7 * 7))
+
+        merge_prob = (-(0.5 * ins_depth_uncer).exp()).exp()
+        merge_depth = (torch.sum((ins_depth * merge_prob).view(-1), dim=-1) /
+                       torch.sum(merge_prob.view(-1), dim=-1))
+        merge_depth = merge_depth.unsqueeze(1)
+        # L1 loss
+        real_depth_loss = F.l1_loss(merge_depth, ins_depth_target, reduction='mean')
+
+        self.disp['real_depth_loss'] = real_depth_loss.item()
 
         depth_loss = vis_depth_loss + att_depth_loss + ins_depth_loss
 

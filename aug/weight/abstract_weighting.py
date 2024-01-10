@@ -7,13 +7,16 @@ from itertools import chain
 class AbsWeighting(nn.Module):
     r"""An abstract class for weighting strategies.
     """
-    def __init__(self, task_num, backbone, neck, device):
+    def __init__(self, task_num, backbone, neck, device, rep_grad=False):
         super(AbsWeighting, self).__init__()
         self.task_num = task_num
         self.backbone = backbone
         self.neck = neck
-        self.rep_grad = False
+        self.rep_grad = rep_grad
         self.device = device
+        if self.rep_grad:
+            self.rep_tasks = {}
+            self.rep = {}
 
     def get_share_params(self):
         r"""Return the shared parameters of the model.
@@ -140,3 +143,13 @@ class AbsWeighting(nn.Module):
             kwargs (dict): A dictionary of hyperparameters of weighting methods.
         """
         pass
+
+    # 需要在 Head 前调用
+    def prepare_rep(self, rep, task):
+        if self.rep_grad:
+            self.rep = rep
+            self.rep_tasks[task] = rep.detach().clone()
+            self.rep_tasks[task].requires_grad = True
+            return self.rep_tasks[task]
+        else:
+            return rep
