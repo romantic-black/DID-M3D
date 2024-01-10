@@ -307,7 +307,7 @@ class Trainer(object):
             ap_mode=40)
         res = res_list[0]['detail']['Car']
         for key in res:
-            for i in ["Easy", "Moderate", "Hard"]:
+            for i in [0, 1, 2]:
                 self.writer.add_scalar(f'eval/{key}_{i}', res[key][i], self.epoch)
 
     def save_results(self, results, output_dir='./outputs'):
