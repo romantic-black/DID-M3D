@@ -143,7 +143,6 @@ class DIDLoss(nn.Module):
         merge_prob = (-(0.5 * ins_depth_uncer).exp()).exp()
         merge_depth = (torch.sum((ins_depth * merge_prob).view(-1), dim=-1) /
                        torch.sum(merge_prob.view(-1), dim=-1))
-        merge_depth = merge_depth.unsqueeze(1)
         # L1 loss
         real_depth_loss = F.l1_loss(merge_depth, ins_depth_target, reduction='mean')
 
