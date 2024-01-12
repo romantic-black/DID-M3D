@@ -85,7 +85,8 @@ class Trainer(object):
                 loss_weights = None
 
             ei_loss = self.train_one_epoch(loss_weights)
-            self.record_val_loss()
+            if self.cfg_train.get('record_val', False):
+                self.record_val_loss()
             self.epoch += 1
 
             # update learning rate
