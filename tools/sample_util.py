@@ -138,8 +138,7 @@ class SampleDatabase:
                 'max_rate': 1.2,
                 'min_rate': 0.5,
             },
-            'position_sample_num': 40,
-            'near_weight': 0.5
+            'position_sample_num': 40
         }
         # sample_constraint 一定要全包含
         self.config = {**default_config, **(config if config is not None else {})}
@@ -375,26 +374,10 @@ class SampleDatabase:
 
         # 合并筛除结果
         valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
-        samples = [(samples[i], bbox3d_[i]) for i in valid]
-        samples = self.choice_samples(samples, min(self.sample_num, len(samples)), near_weight=self.config["near_weight"])
-        res = [Sample(sample[0], sample[1], calib_, self) for sample in samples]
+        valid = np.random.choice(valid, min(self.sample_num, len(valid)), replace=False)
+        res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
+        res = [sample for sample in res if not (10 >= sample.bbox3d_[2] > 0)]
         return res
-
-    @staticmethod
-    def choice_samples(samples, sample_num, near_weight=0.5):
-        assert len(samples) >= sample_num
-
-        samples = sorted(samples, key=lambda x: x[1][2], reverse=True)  # z 降序
-        far = samples[:sample_num // 2]
-        near = samples[sample_num // 2:]
-
-        sample_near_num = min(round(sample_num * near_weight), len(near))
-        sample_far_num = min(round(sample_num * (1 - near_weight)), len(far))
-
-        near = random.sample(near, sample_near_num)
-        far = random.sample(far, sample_far_num)
-
-        return near + far
 
     @staticmethod
     def get_merged_points(samples, image, depth, calib):
