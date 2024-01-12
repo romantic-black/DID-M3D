@@ -138,7 +138,8 @@ class SampleDatabase:
                 'max_rate': 1.2,
                 'min_rate': 0.5,
             },
-            'position_sample_num': 40
+            'position_sample_num': 40,
+            'del_range': 0
         }
         # sample_constraint 一定要全包含
         self.config = {**default_config, **(config if config is not None else {})}
