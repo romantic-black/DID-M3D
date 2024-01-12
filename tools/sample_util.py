@@ -376,7 +376,8 @@ class SampleDatabase:
         valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
         valid = np.random.choice(valid, min(self.sample_num, len(valid)), replace=False)
         res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
-        res = [sample for sample in res if not (10 >= sample.bbox3d_[2] > 0)]
+        del_range = self.config["del_range"]
+        res = [sample for sample in res if not (del_range >= sample.bbox3d_[2] > del_range - 10)]
         return res
 
     @staticmethod
