@@ -138,9 +138,10 @@ class SampleDatabase:
                 'max_rate': 1.2,
                 'min_rate': 0.5,
             },
-            'position_sample_num': 40
+            'position_sample_num': 40,
+            'near_weight': 0.5
         }
-
+        # sample_constraint 一定要全包含
         self.config = {**default_config, **(config if config is not None else {})}
         if idx_list is not None:
             database = database[database['idx'].isin(idx_list)]
@@ -272,14 +273,14 @@ class SampleDatabase:
         scene_type = self.get_scene_type(pos2d)
 
         # 删除超过范围的 grid
-        valid = dis < min(np.max(dis) - 10, 65)  # 最大距离附近的点不可信，超过 65m 的点不可信
+        valid = dis < min(np.max(dis) - 10, 60)  # 最大距离附近的点不可信，超过 65m 的点不可信
         pos2d = pos2d[valid]
 
         # 选取指定范围的 grid
         state = {
-            'a': lambda x: (x[:, 1] >= 20) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
-            'b': lambda x: (x[:, 1] >= 15) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
-            'c': lambda x: (x[:, 1] >= 10) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
+            'a': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
+            'b': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
+            'c': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
             'd': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10)
         }
         valid = state[scene_type](pos2d)
@@ -374,9 +375,26 @@ class SampleDatabase:
 
         # 合并筛除结果
         valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
-        valid = np.random.choice(valid, min(self.sample_num, len(valid)), replace=False)
-        res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
+        samples = [(samples[i], bbox3d_[i]) for i in valid]
+        samples = self.choice_samples(samples, min(self.sample_num, len(samples)), near_weight=self.config["near_weight"])
+        res = [Sample(sample[0], sample[1], calib_, self) for sample in samples]
         return res
+
+    @staticmethod
+    def choice_samples(samples, sample_num, near_weight=0.5):
+        assert len(samples) >= sample_num
+
+        samples = sorted(samples, key=lambda x: x[1][2], reverse=True)  # z 降序
+        far = samples[:sample_num // 2]
+        near = samples[sample_num // 2:]
+
+        sample_far_num = int(sample_num - sample_num * near_weight)
+        sample_near_num = sample_num - sample_far_num
+
+        near = random.sample(near, sample_near_num)
+        far = random.sample(far, sample_far_num)
+
+        return near + far
 
     @staticmethod
     def get_merged_points(samples, image, depth, calib):
