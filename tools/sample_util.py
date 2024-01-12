@@ -388,8 +388,8 @@ class SampleDatabase:
         far = samples[:sample_num // 2]
         near = samples[sample_num // 2:]
 
-        sample_far_num = int(sample_num - sample_num * near_weight)
-        sample_near_num = sample_num - sample_far_num
+        sample_near_num = min(round(sample_num * near_weight), len(near))
+        sample_far_num = min(round(sample_num * (1 - near_weight)), len(far))
 
         near = random.sample(near, sample_near_num)
         far = random.sample(far, sample_far_num)
