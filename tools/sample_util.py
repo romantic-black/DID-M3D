@@ -15,9 +15,17 @@ from lib.datasets.kitti_utils import Object3d
 
 
 def merge_labels(labels, samples, calib_, image_shape):
-    canvas = np.zeros(image_shape[:2], dtype=np.int8) - 1
     labels += [sample.to_label() for sample in samples]
+    occlusion =  recompute_occlusion(labels, calib_, image_shape)
+    for i, label in enumerate(labels):
+        label.occlusion = area2occlusion(occlusion[i])
+        label.level = label.get_obj_level()
+    return labels
+
+def recompute_occlusion(labels, calib_, image_shape=np.array([375, 1242, 3])):
+    canvas = np.zeros(image_shape[:2], dtype=np.int8) - 1
     labels = sorted(labels, key=lambda x: x.pos[2], reverse=True)
+    area = []
     for i, label in enumerate(labels):
         corners = label.generate_corners3d()
         uv, _ = calib_.rect_to_img(corners)
@@ -27,14 +35,13 @@ def merge_labels(labels, samples, calib_, image_shape):
         v_max = round(min(np.max(uv[:, 1]), image_shape[0]))
 
         canvas[v_min: v_max, u_min: u_max] = i
-        label.area = (v_max - v_min) * (u_max - u_min) + 1e-6
+        area.append( (v_max - v_min) * (u_max - u_min) + 1e-6)
     for i, label in enumerate(labels):
-        area = np.sum(canvas == i)
-        label.area = 1 - area / label.area
-        label.occlusion = area2occlusion(label.area)
-        label.level = label.get_obj_level()
-    return labels
-
+        current_area = np.sum(canvas == i)
+        area[i] = 1 - current_area / area[i]  # 被遮挡面积比例
+        if area[i] < 0 or area[i] > 1:
+            area[i] = 1.0
+    return area
 
 def area2occlusion(area):
     if area < 0.1:
@@ -139,7 +146,7 @@ class SampleDatabase:
                 'min_rate': 0.5,
             },
             'position_sample_num': 40,
-            'del_range': 0
+            'max_occlusion': 1.1,
         }
         # sample_constraint 一定要全包含
         self.config = {**default_config, **(config if config is not None else {})}
@@ -338,7 +345,7 @@ class SampleDatabase:
             flag[i] = True
         return bbox3d, flag
 
-    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True):
+    def get_samples(self, ground, non_ground, calib_, plane_, grid=None, ues_plane_filter=True, origin_label=None):
         if grid is None:
             samples, xyz_ = self.sample_xyz(plane_)
             ues_plane_filter = True
@@ -377,8 +384,13 @@ class SampleDatabase:
         valid = np.arange(bbox3d_.shape[0])[flag1][flag2][flag3]
         valid = np.random.choice(valid, min(self.sample_num, len(valid)), replace=False)
         res = [Sample(samples[i], bbox3d_[i], calib_, self) for i in valid]
-        del_range = self.config["del_range"]
-        res = [sample for sample in res if not (del_range >= sample.bbox3d_[2] > del_range - 10)]
+
+        if origin_label is not None:
+            origin_label = deepcopy(origin_label)
+            labels = origin_label + [sample.to_label() for sample in res]
+            occlusion = recompute_occlusion(labels, calib_)[len(origin_label):]
+            res = [sample for i, sample in enumerate(res) if occlusion[i] < self.config['max_occlusion']]
+
         return res
 
     @staticmethod
@@ -673,7 +685,7 @@ if __name__ == '__main__':
         _, _, labels = dataset.get_bbox(idx, chosen_cls=["Car", 'Van', 'Truck', 'DontCare'])
 
         time1 = time.time()
-        samples = database.get_samples(ground, non_ground, calib_, plane_, grid=grid)
+        samples = database.get_samples(ground, non_ground, calib_, plane_, grid=grid, origin_label=labels)
         image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, use_edge_blur=True)
         # image_, depth_, samples = database.add_samples_to_scene(samples, image, depth, calib=calib_, use_3d_projection=True)
         labels = merge_labels(labels, samples, calib_, image.shape)
