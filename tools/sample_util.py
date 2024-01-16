@@ -285,9 +285,9 @@ class SampleDatabase:
 
         # 选取指定范围的 grid
         state = {
-            'a': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
-            'b': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
-            'c': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
+            'a': lambda x: (x[:, 1] >= 20) & (x[:, 0] >= -20) & (x[:, 0] <= 20),
+            'b': lambda x: (x[:, 1] >= 15) & (x[:, 0] >= -15) & (x[:, 0] <= 15),
+            'c': lambda x: (x[:, 1] >= 10) & (x[:, 0] >= -10) & (x[:, 0] <= 10),
             'd': lambda x: (x[:, 1] >= 5) & (x[:, 0] >= -10) & (x[:, 0] <= 10)
         }
         valid = state[scene_type](pos2d)
@@ -357,7 +357,8 @@ class SampleDatabase:
         flag1 = np.ones((bbox3d_.shape[0]), dtype=bool)
         # 判断样本是否在地面上，第一次筛除
         if ues_plane_filter:
-            bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=3, min_num=10, max_degree=15)
+            # bbox3d_, flag1 = self.sample_put_on_plane(bbox3d_, ground, radius=3, min_num=10, max_degree=15)
+            bbox3d_[:, 1] = self.get_y_on_plane(bbox3d_[:, 0], bbox3d_[:, 2], plane_)
 
         if flag1.sum() == 0:
             return []
